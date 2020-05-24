@@ -5,7 +5,7 @@
         <b-row>
           <b-col>
             <b-navbar toggleable="lg" type="dark" variant="info">
-              <b-navbar-brand href="#">CleanIt</b-navbar-brand>
+              <b-navbar-brand href="#">Storytelling</b-navbar-brand>
 
               <b-navbar-toggle target="nav-collapse"></b-navbar-toggle>
 
@@ -16,10 +16,6 @@
                   <b-nav-item v-if="loggedIn" to="profile">
                     <b-icon to="profile" icon="person-fill" font-scale="2.5"></b-icon>
                   </b-nav-item>
-                  <!-- 
-                  <b-nav-item to="#">Link</b-nav-item>
-                  <b-nav-item to="#">Link</b-nav-item>
-                  <b-nav-item to="#">Link</b-nav-item>-->
                 </b-navbar-nav>
                 <b-navbar-nav class="ml-auto">
                   <b-button v-if="!loggedIn" @click="login">Login</b-button>

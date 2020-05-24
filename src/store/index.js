@@ -1,6 +1,7 @@
 import Vue from 'vue'
 import Vuex from 'vuex'
 import auth from "solid-auth-client";
+import axios from 'axios';
 
 Vue.use(Vuex)
 
@@ -23,7 +24,15 @@ export default new Vuex.Store({
       let session = await auth.currentSession();
       let popupUri = "https://solid.community/common/popup.html";
       if (!session) session = await auth.popupLogin({ popupUri });
-      // alert(`Logged in as ${session.webId}`);
+      console.log("Woppps");
+      axios.post("http://localhost:3000/api/registerUser", {
+        userIRI: session.webId
+      }).then(res => {
+        console.log(res);
+        console.log("Wopppsres");
+      }).catch(err => {
+        console.log(err);
+      });
       commit("login", {
         user: session.webId
       });
@@ -34,14 +43,19 @@ export default new Vuex.Store({
           dispatch("popupLogin");
         }
         else {
-          // alert(`Logged in as ${session.webId}`);
+          axios.post("http://localhost:3000/api/registerUser", {
+            userIRI: session.webId
+          }).then(res => {
+            console.log(res);
+          }).catch(err => {
+            console.log(err);
+          });
           commit("login", { user: session.webId });
         }
       });
     },
-    logoutAction({commit}) {
+    logoutAction({ commit }) {
       auth.logout().then(() => {
-        // alert("Goodbye!");
         commit("logout");
       });
     }
