@@ -53,13 +53,6 @@ export default new Vuex.Store({
         rootURI: `${url.protocol}//${url.hostname}`,
       });
     },
-    /* async createFile({ state }) {
-      const session = await auth.currentSession();
-      const fc = new solidFileClient(auth);
-      fc.createFile(state.userRoot + '/pocSolid/1.txt', "Selamlar")
-        .then(res => console.log)
-        .catch(err => console.log);
-    }, */
     async createWorkflowInstance({ state }, { workflow, user }) {
       if (!state.loggedIn) {
         alert("You should be logged in to create workflow.");
@@ -115,17 +108,6 @@ export default new Vuex.Store({
       );
     },
     async initializeUser({ state }, { rootURI }) {
-      axios
-        .post("http://localhost:3000/api/registerUser", {
-          userIRI: state.user,
-        })
-        .then((res) => {
-          console.log(res);
-        })
-        .catch((err) => {
-          console.log(err);
-        });
-
       const rootACL = `
       
         # Default ACL resource 
@@ -147,7 +129,7 @@ export default new Vuex.Store({
 
         <#authorization>
         a               acl:Authorization;
-        acl:accessTo    <${rootURI}/pocSolid>;
+        acl:accessTo    <${rootURI}/poc/>;
         acl:mode        acl:Read,
                         acl:Write;
         acl:agentGroup  <https://serkanozel.me/pocUsers.ttl#poc>.
@@ -184,12 +166,6 @@ export default new Vuex.Store({
         .catch((err) => {
           console.log(err);
         });
-    },
-    async testAction({ commit }, { rootURI }) {
-      const fc = new solidFileClient(auth);
-      fc.deleteFolder(rootURI + "/pocSolid2/")
-        .then((res) => console.log)
-        .catch((err) => console.log);
     },
     async checkLogin({ commit, dispatch }) {
       auth.trackSession((session) => {

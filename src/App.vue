@@ -67,6 +67,10 @@ export default {
   created() {
     store.dispatch("checkLogin");
     store.dispatch("fetchAllUsers");
+    /* store.dispatch("testAction2", {
+      rootURI: "https://srknzl.solid.community/poc/"
+    }); */
+
     /* auth
       .fetch(
         "https://serkanozel.solid.community/profile/Image_1581238248005.png"
