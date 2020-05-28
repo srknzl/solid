@@ -66,6 +66,7 @@ import store from "../src/store/index";
 export default {
   created() {
     store.dispatch("checkLogin");
+    store.dispatch("fetchAllUsers");
     /* auth
       .fetch(
         "https://serkanozel.solid.community/profile/Image_1581238248005.png"
@@ -84,7 +85,7 @@ export default {
       store.dispatch("logoutAction");
     },
     login() {
-      store.dispatch("popupLogin");
+      store.dispatch("login");
     }
   },
   computed: {

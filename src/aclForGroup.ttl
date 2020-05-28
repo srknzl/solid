@@ -1,0 +1,9 @@
+@prefix  acl:  <http://www.w3.org/ns/auth/acl#>.
+
+# POC Group authorization
+<#authorization>
+    a               acl:Authorization;
+    acl:accessTo    <https://srknzl.solid.community/pocSolid>;
+    acl:mode        acl:Read,
+                    acl:Write;
+    acl:agentGroup  <https://serkanozel.me/pocUsers.ttl#poc>.
