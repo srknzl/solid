@@ -4,7 +4,8 @@ import auth from "solid-auth-client";
 import solidFileClient from "solid-file-client";
 import axios from "axios";
 import constants from "./constants";
-const $rdf = require("rdflib");
+const N3 = require("n3");
+const df = N3.DataFactory;
 
 Vue.use(Vuex);
 
@@ -21,7 +22,7 @@ export default new Vuex.Store({
     user: "", // holds the webid of the user with card#me
     users: [],
     userRoot: "", // holds root hostname the webid of the user
-    store: new $rdf.graph(),
+    store: new N3.Store(),
   },
   mutations: {
     login(state, { user }) {
@@ -87,21 +88,30 @@ export default new Vuex.Store({
     },
     async fetchAllUsers({ state, commit }) {
       // Updates all users info
-      const VCARD = new $rdf.Namespace("http://www.w3.org/2006/vcard/ns#");
-      const pocUsers = state.store.sym(
-        "https://serkanozel.me/pocUsers.ttl#poc"
-      );
-      const pocUsersDoc = pocUsers.doc();
-      const fetcher = new $rdf.Fetcher(state.store);
-      fetcher.load(pocUsersDoc).then(
-        (response) => {
-          const users = state.store.match(pocUsers, VCARD("hasMember"));
-          commit("updateUsers", { users: users });
-        },
-        (err) => {
-          console.log("Load failed " + err);
-        }
-      );
+
+      try {
+        const res = await axios.get("https://serkanozel.me/pocUsers.ttl");
+        console.log(res.data);
+        const parser = new N3.Parser({
+          baseIRI: "http://serkanozel.me/pocUsers.ttl",
+        });
+        parser.parse(res.data, (err, quad, prefixes) => {
+          if (err) console.log(err);
+          if (quad) {
+            console.log(quad);
+            state.store.addQuad(quad);
+          } else {
+            console.log("Prefixes used: ", prefixes);
+            const userQuads = state.store.getQuads(
+              df.namedNode("http://serkanozel.me/pocUsers.ttl#poc"),
+              df.namedNode(prefixes.vcard + "hasMember")
+            );
+            commit("updateUsers", { users: userQuads });
+          }
+        });
+      } catch (error) {
+        console.log(error);
+      }
     },
     async initializeUser({ state }, { rootURI }) {
       const rootACL = constants.rootACL(rootURI);
