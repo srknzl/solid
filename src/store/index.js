@@ -3,6 +3,7 @@ import Vuex from "vuex";
 import auth from "solid-auth-client";
 import solidFileClient from "solid-file-client";
 import axios from "axios";
+import constants from "./constants";
 const $rdf = require("rdflib");
 
 Vue.use(Vuex);
@@ -17,9 +18,9 @@ const generateRandomString = () => {
 export default new Vuex.Store({
   state: {
     loggedIn: false,
-    user: "",
+    user: "", // holds the webid of the user with card#me
     users: [],
-    userRoot: "",
+    userRoot: "", // holds root hostname the webid of the user
     store: new $rdf.graph(),
   },
   mutations: {
@@ -30,7 +31,7 @@ export default new Vuex.Store({
     logout(state) {
       state.loggedIn = false;
     },
-    updateUserUrl(state, { webId }) {
+    updateUserRootUrl(state, { webId }) {
       const url = new URL(webId);
       state.userRoot = `${url.protocol}//${url.hostname}`;
     },
@@ -42,7 +43,7 @@ export default new Vuex.Store({
     async login({ dispatch, commit }) {
       let session = await auth.currentSession();
       if (!session) session = await auth.login("https://solid.community");
-      commit("updateUserUrl", {
+      commit("updateUserRootUrl", {
         webId: session.webId,
       });
       const url = new URL(session.webId);
@@ -60,37 +61,32 @@ export default new Vuex.Store({
       }
       const fc = new solidFileClient(auth);
       const randomString = generateRandomString();
-      const workflow_instance = `
-      @prefix services: <http://web.cmpe.boun.edu.tr/soslab/ontologies/poc/services#> .
-      @prefix poc: <http://soslab.cmpe.boun.edu.tr/ontologies/poc_core.ttl#> .
-      @prefix dcterms: <http://purl.org/dc/terms/> .
-      @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-
-      <> a poc:WorkflowInstance;
-      poc:datatype <${workflow}>;
-      poc:status "ongoing";
-      dcterms:created "${new Date().toISOString()}"^^xsd:dateTime;
-      dcterms:creator <${user}>;
-      services:stepInstances <${randomString}_step_instances>.`;
-
-      fc.postFile(
-        state.userRoot +
-          "/pocSolid/workflow_instances/workflow_instance_" +
-          randomString,
-        workflow_instance,
-        "text/turtle"
-      )
-        .then((res) => console.log)
-        .catch((err) => console.log);
-      fc.createFolder(
-        state.userRoot +
-          "/pocSolid/workflow_instances/" +
-          `${randomString}_step_instances`
-      )
-        .then((res) => console.log)
-        .catch((err) => console.log);
+      const workflow_instance = constants.workflowInstanceACL(
+        workflow,
+        user,
+        randomString
+      );
+      try {
+        const res = await fc.postFile(
+          state.userRoot +
+            "/pocSolid/workflow_instances/workflow_instance_" +
+            randomString,
+          workflow_instance,
+          "text/turtle"
+        );
+        console.log(res);
+        const res2 = await fc.createFolder(
+          state.userRoot +
+            "/pocSolid/workflow_instances/" +
+            `${randomString}_step_instances`
+        );
+        console.log(res2);
+      } catch (error) {
+        console.log(error);
+      }
     },
     async fetchAllUsers({ state, commit }) {
+      // Updates all users info
       const VCARD = new $rdf.Namespace("http://www.w3.org/2006/vcard/ns#");
       const pocUsers = state.store.sym(
         "https://serkanozel.me/pocUsers.ttl#poc"
@@ -108,64 +104,39 @@ export default new Vuex.Store({
       );
     },
     async initializeUser({ state }, { rootURI }) {
-      const rootACL = `
-      
-        # Default ACL resource 
-
-        @prefix acl: <http://www.w3.org/ns/auth/acl#>.
-        @prefix foaf: <http://xmlns.com/foaf/0.1/>.
-
-        <#owner>
-        a acl:Authorization;
-
-        acl:agent
-        <${rootURI}/profile/card#me>;
-
-        acl:accessTo <./>;
-        acl:default <./>;
-
-        acl:mode
-        acl:Read, acl:Write, acl:Control.
-
-        <#authorization>
-        a               acl:Authorization;
-        acl:accessTo    <${rootURI}/poc/>;
-        acl:mode        acl:Read,
-                        acl:Write;
-        acl:agentGroup  <https://serkanozel.me/pocUsers.ttl#poc>.
-      
-      `;
+      const rootACL = constants.rootACL(rootURI);
 
       const fc = new solidFileClient(auth);
-      fc.createFolder(rootURI + "/poc/")
-        .then((res) => {
-          fc.postFile(rootURI + "/poc/.acl", rootACL, "text/turtle").then(
-            (res) => {
-              console.log(res);
-              axios
-                .post(
-                  "https://serkanozel.me/pocUsers.ttl",
-                  {
-                    userIRI: `${rootURI}/profile/card#me`,
-                  },
-                  {
-                    headers: {
-                      "Content-Type": "application/json",
-                    },
-                  }
-                )
-                .then((res) => {
-                  console.log(res);
-                })
-                .catch((err) => {
-                  console.log(err);
-                });
-            }
-          );
-        })
-        .catch((err) => {
-          console.log(err);
-        });
+
+      try {
+        const res = await fc.readFolder(rootURI + "/poc/");
+        console.log(res);
+      } catch (error) {
+        // 404 user is not initialized before
+        console.log(error);
+        const res = await fc.createFolder(rootURI + "/poc/");
+        console.log(res);
+        const res2 = await fc.postFile(
+          rootURI + "/poc/.acl",
+          rootACL,
+          "text/turtle"
+        );
+        console.log(res2);
+        const res3 = await axios.post(
+          "https://serkanozel.me/pocUsers.ttl",
+          {
+            userIRI: `${rootURI}/profile/card#me`,
+          },
+          {
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+        console.log(res3);
+        const res4 = await this.dispatch("fetchAllUsers");
+        console.log(res4);
+      }
     },
     async checkLogin({ commit, dispatch }) {
       auth.trackSession((session) => {
@@ -179,15 +150,16 @@ export default new Vuex.Store({
           dispatch("initializeUser", {
             rootURI: `${url.protocol}//${url.hostname}`,
           });
-          //dispatch("testAction", { rootURI: `${url.protocol}//${url.hostname}` })
         }
       });
     },
-    logoutAction({ commit }) {
-      auth.logout().then(() => {
+    async logoutAction({ commit }) {
+      try {
+        await auth.logout();
         commit("logout");
-      });
+      } catch (error) {
+        console.log("Cannot logout");
+      }
     },
   },
-  modules: {},
 });
