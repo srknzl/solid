@@ -1,11 +1,5 @@
 <template>
   <div class="home">
-    <!-- todo: List all workflow instances -->
-    <!-- todo: List all step instances -->
-    <!-- todo: List all data instances if applicable -->
-    <!-- todo: List application's workflows -->
-    <!-- todo: List application's steps -->
-    <!-- todo: List application's data types -->
     <div id="users">
       <h2>Users:</h2>
       <p v-for="(u,ind) in users" :key="ind">
@@ -24,6 +18,12 @@
 </style>
 <script>
 import store from "../store/index";
+//todo: List all workflow instances
+//todo: List all step instances
+//todo: List all data instances if applicable
+//todo: List application's workflows
+//todo: List application's steps
+//todo: List application's data types
 
 export default {
   name: "Home",
