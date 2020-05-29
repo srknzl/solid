@@ -109,7 +109,7 @@ export default new Vuex.Store({
       const fc = new solidFileClient(auth);
 
       try {
-        const res = await fc.readFolder(rootURI + "/poc/");
+        const res = await fc.readFolder(rootURI + "/poc/"); // if this folder does not exist then init user
         console.log(res);
       } catch (error) {
         // 404 user is not initialized before

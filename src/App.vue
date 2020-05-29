@@ -11,7 +11,7 @@
 
               <b-collapse id="nav-collapse" is-nav>
                 <b-navbar-nav class="align-items-center">
-                  <b-nav-item to="/">Home</b-nav-item>
+                  <b-nav-item to="/">Poc</b-nav-item>
                   <b-nav-item to="/about">About</b-nav-item>
                   <b-nav-item v-if="loggedIn" to="profile">
                     <b-icon to="profile" icon="person-fill" font-scale="2.5"></b-icon>
@@ -42,8 +42,8 @@
   font-family: Avenir, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  text-align: center;
   color: #2c3e50;
+  padding: 1rem;
 }
 
 #nav {
@@ -61,28 +61,11 @@
 </style>
 <script>
 import store from "../src/store/index";
-// import auth from "solid-auth-client";
 
 export default {
   created() {
     store.dispatch("checkLogin");
     store.dispatch("fetchAllUsers");
-    /* store.dispatch("testAction2", {
-      rootURI: "https://srknzl.solid.community/poc/"
-    }); */
-
-    /* auth
-      .fetch(
-        "https://serkanozel.solid.community/profile/Image_1581238248005.png"
-      )
-      .then(res => {
-        return res.blob();
-      })
-      .then(images => {
-        const urlCreator = window.URL || window.webkitURL;
-        const imageUrl = urlCreator.createObjectURL(images);
-        document.querySelector("#image").src = imageUrl;
-      }); */
   },
   methods: {
     logout() {
