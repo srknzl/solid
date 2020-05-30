@@ -4,6 +4,7 @@ import auth from "solid-auth-client";
 import solidFileClient from "solid-file-client";
 import axios from "axios";
 import constants from "./constants";
+import qs from "querystring";
 const N3 = require("n3");
 const df = N3.DataFactory;
 
@@ -22,7 +23,11 @@ export default new Vuex.Store({
     user: "", // holds the webid of the user with card#me
     users: [],
     userRoot: "", // holds root hostname the webid of the user
-    store: new N3.Store(),
+    store: new N3.Store(), // holds the spec,
+    compositeDatatypes: [],
+    derivedDatatypes: [],
+    appUri: "",
+    appDesc: "",
   },
   mutations: {
     login(state, { user }) {
@@ -170,6 +175,167 @@ export default new Vuex.Store({
       } catch (error) {
         console.log("Cannot logout");
       }
+    },
+    async fetchSpec({ state, commit }) {
+      const data = {
+        query: "SELECT ?s ?p ?o WHERE { GRAPH<http://poc.core>{ ?s ?p ?o}}",
+      };
+      const res = await axios.post(
+        "http://134.122.65.239:3030/ds/query",
+        qs.stringify(data)
+      );
+
+      // Preprocessing, from sparql result to store
+      res.data.results.bindings.forEach((x) => {
+        let s, p, o;
+        if (x.s.type == "uri") {
+          s = df.namedNode(x.s.value);
+        } else if (x.s.type == "literal") {
+          if (x.s.datatype) {
+            s = df.literal(x.s.value, df.namedNode(x.s.datatype));
+          } else if (x.s["xml:lang"]) {
+            s = df.literal(x.s.value, x.s["xml:lang"]);
+          } else {
+            s = df.literal(x.s.value);
+          }
+        } else if (x.s.type == "bnode") {
+          s = df.blankNode(x.s.value);
+        }
+        if (x.p.type == "uri") {
+          p = df.namedNode(x.p.value);
+        } else if (x.p.type == "literal") {
+          if (x.p.datatype) {
+            p = df.literal(x.p.value, df.namedNode(x.p.datatype));
+          } else if (x.p["xml:lang"]) {
+            p = df.literal(x.p.value, x.p["xml:lang"]);
+          } else {
+            p = df.literal(x.p.value);
+          }
+        } else if (x.p.type == "bnode") {
+          p = df.blankNode(x.p.value);
+        }
+        if (x.o.type == "uri") {
+          o = df.namedNode(x.o.value);
+        } else if (x.o.type == "literal") {
+          if (x.o.datatype) {
+            o = df.literal(x.o.value, df.namedNode(x.o.datatype));
+          } else if (x.o["xml:lang"]) {
+            o = df.literal(x.o.value, x.o["xml:lang"]);
+          } else {
+            o = df.literal(x.o.value);
+          }
+        } else if (x.o.type == "bnode") {
+          o = df.blankNode(x.o.value);
+        }
+        const quad = df.quad(s, p, o);
+        state.store.addQuad(quad);
+      });
+      // Extract application name and description
+      const ontologyQuad = state.store.getQuads(
+        null,
+        null,
+        df.namedNode("http://www.w3.org/2002/07/owl#Ontology")
+      );
+      if (ontologyQuad.length > 0) {
+        state.appUri = ontologyQuad[0].subject.value;
+        const ontologyCommentQuad = state.store.getQuads(
+          df.namedNode(state.appUri),
+          df.namedNode("http://www.w3.org/2000/01/rdf-schema#comment"),
+          null
+        );
+        if (ontologyCommentQuad.length > 0) {
+          state.appDesc = ontologyCommentQuad[0].object.value;
+        }
+      }
+      // Composite Datatype Extract
+      let compositeDatatypeQuads = state.store.getQuads(
+        null,
+        null,
+        df.namedNode(
+          "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#CompositeDatatype"
+        )
+      );
+
+      compositeDatatypeQuads = compositeDatatypeQuads.map((x) => {
+        let dataFields = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#dataField"
+          ),
+          null
+        );
+        dataFields = dataFields.map((y) => {
+          const fieldTypeQuad = state.store.getQuads(
+            df.namedNode(y.object.value),
+            df.namedNode(
+              "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#fieldType"
+            ),
+            null
+          );
+          const descriptionQuad = state.store.getQuads(
+            df.namedNode(y.object.value),
+            df.namedNode("http://purl.org/dc/terms/description"),
+            null
+          );
+          return {
+            name: y.subject.value,
+            fieldtype: fieldTypeQuad[0].object.value,
+            description: descriptionQuad[0].object.value,
+          };
+        });
+        return {
+          uri: x.subject.value,
+          datafields: dataFields,
+        };
+      });
+      state.compositeDatatypes = compositeDatatypeQuads;
+
+      let derivedDatatypeQuads = state.store.getQuads(
+        null,
+        null,
+        df.namedNode(
+          "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#DerivedDatatype"
+        )
+      );
+      derivedDatatypeQuads = derivedDatatypeQuads.map((x) => {
+        const baseDatatypeQuad = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#baseDatatype"
+          ),
+          null
+        );
+        const maxFrameWidth = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFrameWidth"),null);
+        const minFrameWidth = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFrameWidth"),null);
+        const maxFrameHeight = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFrameHeight"),null);
+        const minFrameHeight = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFrameHeight"),null);
+        const maxTrackLength = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxTrackLength"),null);
+        const minTrackLength = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minTrackLength"),null);
+        const maxFileSize = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFileSize"),null);
+        const minFileSize = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFileSize"),null);
+        const scaleWidth = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#scaleWidth"),null);
+        const scaleHeight = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#scaleHeight"),null);
+        const maxSize = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxSize"),null);
+
+        return {
+          uri: x.subject.value,
+          baseDatatype: baseDatatypeQuad[0].object.value,
+          limitations: {
+            maxFrameWidth: maxFrameWidth.length>0 ? maxFrameWidth[0].object.value : "",
+            minFrameWidth: minFrameWidth.length>0 ? minFrameWidth[0].object.value : "",
+            maxFrameHeight: maxFrameHeight.length>0 ? maxFrameHeight[0].object.value : "",
+            minFrameHeight: minFrameHeight.length>0 ? minFrameHeight[0].object.value : "",
+            maxTrackLength: maxTrackLength.length>0 ? maxTrackLength[0].object.value : "",
+            minTrackLength: minTrackLength.length>0 ? minTrackLength[0].object.value : "",
+            maxFileSize: maxFileSize.length>0 ? maxFileSize[0].object.value : "",
+            minFileSize: minFileSize.length>0 ? minFileSize[0].object.value : "",
+            scaleWidth: scaleWidth.length>0 ? scaleWidth[0].object.value : "",
+            scaleHeight: scaleHeight.length>0 ? scaleHeight[0].object.value : "",
+            maxSize: maxSize.length>0 ? maxSize[0].object.value : ""
+          }
+        };
+      });
+      state.derivedDatatypes = derivedDatatypeQuads;
     },
   },
 });
