@@ -26,6 +26,7 @@ export default new Vuex.Store({
     store: new N3.Store(), // holds the spec,
     compositeDatatypes: [],
     derivedDatatypes: [],
+    workflows: [],
     appUri: "",
     appDesc: "",
   },
@@ -122,13 +123,7 @@ export default new Vuex.Store({
       const rootACL = constants.rootACL(rootURI);
 
       const fc = new solidFileClient(auth);
-
-      try {
-        const res = await fc.readFolder(rootURI + "/poc/"); // if this folder does not exist then init user
-        console.log(res);
-      } catch (error) {
-        // 404 user is not initialized before
-        console.log(error);
+      if (!(await fc.itemExists(rootURI + "/poc/"))) {
         const res = await fc.createFolder(rootURI + "/poc/");
         console.log(res);
         const res2 = await fc.postFile(
@@ -149,9 +144,79 @@ export default new Vuex.Store({
           }
         );
         console.log(res3);
-        const res4 = await this.dispatch("fetchAllUsers");
-        console.log(res4);
       }
+      const res4 = await this.dispatch("fetchAllUsers");
+      console.log(res4);
+
+      // Write lists to users pod
+
+      let listQuads = state.store.getQuads(
+        null,
+        null,
+        df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#List")
+      );
+
+      listQuads.forEach((x) => {
+        const value = x.subject.value;
+        const relatedQuads = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          null,
+          null
+        );
+
+        const writer = new N3.Writer({
+          prefixes: {
+            poc: "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#",
+            dcterms: "http://purl.org/dc/terms/",
+            rdf: "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+            xsd: "http://www.w3.org/2001/XMLSchema#",
+            rdfs: "http://www.w3.org/2000/01/rdf-schema#",
+            owl: "http://www.w3.org/2002/07/owl#",
+            storytelling:
+              "http://web.cmpe.boun.edu.tr/soslab/ontologies/storytelling#",
+          },
+        });
+        writer.addQuads(relatedQuads);
+        writer.addQuad(
+          df.namedNode(x.subject.value),
+          df.namedNode("http://purl.org/dc/terms/created"),
+          df.literal(
+            new Date().toISOString(),
+            df.namedNode("http://www.w3.org/2001/XMLSchema#datetime")
+          )
+        );
+        writer.addQuad(
+          df.namedNode(x.subject.value),
+          df.namedNode("http://purl.org/dc/terms/creator"),
+          df.namedNode(state.user)
+        );
+        writer.addQuad(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#items"
+          ),
+          writer.list([])
+        );
+        writer.end(async (end, result) => {
+          if (
+            !(await fc.itemExists(
+              rootURI +
+                "/poc/data_instances/" +
+                value.substring(value.lastIndexOf("#") + 1) +
+                ".ttl"
+            ))
+          ) {
+            await fc.createFile(
+              rootURI +
+                "/poc/data_instances/" +
+                value.substring(value.lastIndexOf("#") + 1) +
+                ".ttl",
+              result,
+              "text/turtle"
+            );
+          }
+        });
+      });
     },
     async checkLogin({ commit, dispatch }) {
       auth.trackSession((session) => {
@@ -243,9 +308,10 @@ export default new Vuex.Store({
           df.namedNode("http://www.w3.org/2000/01/rdf-schema#comment"),
           null
         );
-        if (ontologyCommentQuad.length > 0) {
-          state.appDesc = ontologyCommentQuad[0].object.value;
-        }
+        state.appDesc =
+          ontologyCommentQuad.length > 0
+            ? ontologyCommentQuad[0].object.value
+            : "";
       }
       // Composite Datatype Extract
       let compositeDatatypeQuads = state.store.getQuads(
@@ -279,8 +345,10 @@ export default new Vuex.Store({
           );
           return {
             name: y.subject.value,
-            fieldtype: fieldTypeQuad[0].object.value,
-            description: descriptionQuad[0].object.value,
+            fieldtype:
+              fieldTypeQuad.length > 0 ? fieldTypeQuad[0].object.value : "",
+            description:
+              descriptionQuad.length > 0 ? descriptionQuad[0].object.value : "",
           };
         });
         return {
@@ -290,6 +358,7 @@ export default new Vuex.Store({
       });
       state.compositeDatatypes = compositeDatatypeQuads;
 
+      // Derived datatype extract
       let derivedDatatypeQuads = state.store.getQuads(
         null,
         null,
@@ -305,37 +374,141 @@ export default new Vuex.Store({
           ),
           null
         );
-        const maxFrameWidth = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFrameWidth"),null);
-        const minFrameWidth = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFrameWidth"),null);
-        const maxFrameHeight = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFrameHeight"),null);
-        const minFrameHeight = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFrameHeight"),null);
-        const maxTrackLength = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxTrackLength"),null);
-        const minTrackLength = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minTrackLength"),null);
-        const maxFileSize = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFileSize"),null);
-        const minFileSize = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFileSize"),null);
-        const scaleWidth = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#scaleWidth"),null);
-        const scaleHeight = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#scaleHeight"),null);
-        const maxSize = state.store.getQuads(df.namedNode(x.subject.value), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxSize"),null);
+        const maxFrameWidth = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFrameWidth"
+          ),
+          null
+        );
+        const minFrameWidth = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFrameWidth"
+          ),
+          null
+        );
+        const maxFrameHeight = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFrameHeight"
+          ),
+          null
+        );
+        const minFrameHeight = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFrameHeight"
+          ),
+          null
+        );
+        const maxTrackLength = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxTrackLength"
+          ),
+          null
+        );
+        const minTrackLength = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minTrackLength"
+          ),
+          null
+        );
+        const maxFileSize = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFileSize"
+          ),
+          null
+        );
+        const minFileSize = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFileSize"
+          ),
+          null
+        );
+        const scaleWidth = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#scaleWidth"
+          ),
+          null
+        );
+        const scaleHeight = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#scaleHeight"
+          ),
+          null
+        );
+        const maxSize = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode(
+            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxSize"
+          ),
+          null
+        );
 
         return {
           uri: x.subject.value,
-          baseDatatype: baseDatatypeQuad[0].object.value,
+          baseDatatype:
+            baseDatatypeQuad.length > 0 ? baseDatatypeQuad[0].object.value : "",
           limitations: {
-            maxFrameWidth: maxFrameWidth.length>0 ? maxFrameWidth[0].object.value : "",
-            minFrameWidth: minFrameWidth.length>0 ? minFrameWidth[0].object.value : "",
-            maxFrameHeight: maxFrameHeight.length>0 ? maxFrameHeight[0].object.value : "",
-            minFrameHeight: minFrameHeight.length>0 ? minFrameHeight[0].object.value : "",
-            maxTrackLength: maxTrackLength.length>0 ? maxTrackLength[0].object.value : "",
-            minTrackLength: minTrackLength.length>0 ? minTrackLength[0].object.value : "",
-            maxFileSize: maxFileSize.length>0 ? maxFileSize[0].object.value : "",
-            minFileSize: minFileSize.length>0 ? minFileSize[0].object.value : "",
-            scaleWidth: scaleWidth.length>0 ? scaleWidth[0].object.value : "",
-            scaleHeight: scaleHeight.length>0 ? scaleHeight[0].object.value : "",
-            maxSize: maxSize.length>0 ? maxSize[0].object.value : ""
-          }
+            maxFrameWidth:
+              maxFrameWidth.length > 0 ? maxFrameWidth[0].object.value : "",
+            minFrameWidth:
+              minFrameWidth.length > 0 ? minFrameWidth[0].object.value : "",
+            maxFrameHeight:
+              maxFrameHeight.length > 0 ? maxFrameHeight[0].object.value : "",
+            minFrameHeight:
+              minFrameHeight.length > 0 ? minFrameHeight[0].object.value : "",
+            maxTrackLength:
+              maxTrackLength.length > 0 ? maxTrackLength[0].object.value : "",
+            minTrackLength:
+              minTrackLength.length > 0 ? minTrackLength[0].object.value : "",
+            maxFileSize:
+              maxFileSize.length > 0 ? maxFileSize[0].object.value : "",
+            minFileSize:
+              minFileSize.length > 0 ? minFileSize[0].object.value : "",
+            scaleWidth: scaleWidth.length > 0 ? scaleWidth[0].object.value : "",
+            scaleHeight:
+              scaleHeight.length > 0 ? scaleHeight[0].object.value : "",
+            maxSize: maxSize.length > 0 ? maxSize[0].object.value : "",
+          },
         };
       });
       state.derivedDatatypes = derivedDatatypeQuads;
+
+      // Workflows extract
+      let workflowQuads = state.store.getQuads(
+        null,
+        null,
+        df.namedNode(
+          "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#Workflow"
+        )
+      );
+      workflowQuads = workflowQuads.map((x) => {
+        const labelQuad = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode("http://www.w3.org/2000/01/rdf-schema#label"),
+          null
+        );
+        const descriptionQuad = state.store.getQuads(
+          df.namedNode(x.subject.value),
+          df.namedNode("http://purl.org/dc/terms/description"),
+          null
+        );
+        return {
+          uri: x.subject.value,
+          description:
+            descriptionQuad.length > 0 ? descriptionQuad[0].object.value : "",
+          label: labelQuad.length > 0 ? labelQuad[0].object.value : "",
+        };
+      });
+      state.workflows = workflowQuads;
     },
   },
 });
