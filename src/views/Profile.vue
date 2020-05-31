@@ -18,10 +18,9 @@
 </style>
 <script>
 import store from "../store/index";
-// todo: List user workflow instances
-// todo: List user data instances if applicable
+// todo: List user workflow instances(possibly from filtering all)
+// todo: List user lists (possibly from filtering all)
 // todo: Give user chance to invoke/interact his/her instances
-// todo: Save all the user related info to user's own pod
 export default {
   computed: {
     userRoot() {

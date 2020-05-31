@@ -5,14 +5,14 @@
     <div class="poccontainer">
       <h2>Users:</h2>
       <p v-for="(u,ind) in users" :key="ind">
-        User {{ind}}:
+        User {{ind+1}}:
         <a :href="u.object.value" target="_blank">{{u.object.value}}</a>
       </p>
     </div>
     <div style="marginTop: 1rem;" class="poccontainer">
       <h2>Composite Datatypes:</h2>
       <div style="marginTop: 1rem;" v-for="(d,ind) in compositeDatatypes" :key="ind">
-        <h3>CompositeDatatype {{ind}}: {{d.uri}}</h3>
+        <h3>CompositeDatatype {{ind+1}}: {{d.uri}}</h3>
         <div class="poccontainer" v-for="(x,ind2) in d.datafields" :key="ind2">
           <p>Name: {{x.name}}</p>
           <p>Description: {{x.description}}</p>
@@ -23,7 +23,7 @@
     <div style="marginTop: 1rem;" class="poccontainer">
       <h2>Derived Datatypes:</h2>
       <div style="marginTop: 1rem;" v-for="(d,ind) in derivedDatatypes" :key="ind">
-        <h3>Derived Datatype {{ind}}: {{d.uri}}</h3>
+        <h3>Derived Datatype {{ind+1}}: {{d.uri}}</h3>
         <p v-if="d.limitations.maxFrameWidth">maxFrameWidth: {{d.limitations.maxFrameWidth}}</p>
         <p v-if="d.limitations.minFrameWidth">minFrameWidth: {{d.limitations.minFrameWidth}}</p>
         <p v-if="d.limitations.maxFrameHeight">maxFrameHeight: {{d.limitations.maxFrameHeight}}</p>
@@ -41,7 +41,7 @@
       <h2>Workflows</h2>
       <div style="marginTop: 1rem;" v-for="(w,ind) in workflows" :key="ind">
         <div class="poccontainer">
-          <h3>Workflow {{ind}}: {{w.uri}}</h3>
+          <h3>Workflow {{ind+1}}: {{w.uri}}</h3>
           <p v-if="w.label">Label: {{w.label}}</p>
           <p v-if="w.description">Description: {{w.description}}</p>
           <b-button @click="onWorkflowInvoke(w)">Start this workflow</b-button>
@@ -51,7 +51,7 @@
     <div style="marginTop: 1rem;" class="poccontainer">
       <h2>Lists</h2>
       <div v-for="(l,ind) in lists" :key="ind" class="poccontainer">
-        <p>ListName {{l.listName}}</p>
+        <p>List {{ind+1}}: {{l.listName}}</p>
         <p v-if="l.list.length > 0"> Items: </p>
         <ul v-if="l.list.length > 0">
           <li v-for="(item, indice) in l.list" :key="indice">
@@ -59,6 +59,12 @@
             <p v-if="item.termType == 'NamedNode'"><u>NamedNode:</u> <b>Value:</b> {{item.value}} <b>From:</b> {{item.from}}</p>
           </li>
         </ul>
+      </div>
+    </div>
+    <div style="marginTop: 1rem;" class="poccontainer">
+      <h2>Workflow Instances</h2>
+      <div v-for="(w,ind) in workflowInstances" :key="ind" class="poccontainer">
+        <p>Workflow Instance {{ind+1}}: {{"w"}}</p>
       </div>
     </div>
   </div>
@@ -84,7 +90,7 @@ export default {
   components: {},
   methods: {
     onWorkflowInvoke(workflow) {
-      console.log("Workflow", workflow, "invoked!");
+      this.$bvToast.toast("Workflow "+ workflow.label+ " invoked!");
     }
   },
   created() {},

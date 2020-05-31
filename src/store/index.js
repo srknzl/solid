@@ -27,6 +27,7 @@ export default new Vuex.Store({
     compositeDatatypes: [],
     derivedDatatypes: [],
     workflows: [],
+    workflowInstances: [],
     lists: [],
     appUri: "",
     appDesc: "",
@@ -66,6 +67,9 @@ export default new Vuex.Store({
     },
     setWorkflows(state, { workflows }) {
       state.workflows = workflows;
+    },
+    setWorkflowInstances(state, {workflowInstances}){
+      state.workflowInstances = workflowInstances;
     }
   },
   actions: {
@@ -317,6 +321,31 @@ export default new Vuex.Store({
         commit("addList", {
           listName: "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#" + listName,
           list: list
+        });
+        
+      });
+
+      // Fetch all workflows instances from all users
+
+      state.workflowInstances = [];
+      state.users.forEach(async (u, index) => {
+        const url = new URL(u.object.value);
+        const userRoot = `${url.protocol}//${url.hostname}`;
+        let res;
+        try {
+          res = fc.readFolder(userRoot+ "/poc/workflow_instances/");
+        } catch (error) {
+          vue.$bvToast.toast("Cannot read " + userRoot + "/poc/workflow_instances/");
+        }
+        const parser = new N3.Parser();
+        const ministore = new N3.Store();
+        parser.parse(res, (err, quad, prefixes) => { // todo: check if this usage of res is correct & test workflow instances 
+          if(err)vue.$bvToast("Cannot parse workflow instances" + err);
+          if(quad){
+            ministore.addQuad(quad);
+          }else if(index == state.users.length-1){
+            state.workflowInstances = ministore.getQuads(null, df.namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#WorkflowInstance"));
+          }
         });
       });
 
