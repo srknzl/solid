@@ -5,7 +5,7 @@
         <b-row>
           <b-col>
             <b-navbar toggleable="lg" type="dark" variant="info">
-              <b-navbar-brand href="#">Storytelling</b-navbar-brand>
+              <b-navbar-brand href="#">Solid POC</b-navbar-brand>
 
               <b-navbar-toggle target="nav-collapse"></b-navbar-toggle>
 
@@ -64,15 +64,14 @@ import store from "../src/store/index";
 
 export default {
   created() {
-    store.dispatch("checkLogin");
-    store.dispatch("fetchAllUsers");
+    store.dispatch("checkLogin", {vue: this});
   },
   methods: {
     logout() {
-      store.dispatch("logoutAction");
+      store.dispatch("logoutAction", {vue: this});
     },
     login() {
-      store.dispatch("login");
+      store.dispatch("login", {vue: this});
     }
   },
   computed: {

@@ -19,7 +19,8 @@ acl:Read, acl:Write, acl:Control.
 
 <#authorization>
 a               acl:Authorization;
-acl:accessTo    <${rootURI}/poc/>;
+acl:accessTo <./>;
+acl:default <./>;
 acl:mode        acl:Read,
                 acl:Write;
 acl:agentGroup  <https://serkanozel.me/pocUsers.ttl#poc>.

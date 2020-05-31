@@ -48,6 +48,19 @@
         </div>
       </div>
     </div>
+    <div style="marginTop: 1rem;" class="poccontainer">
+      <h2>Lists</h2>
+      <div v-for="(l,ind) in lists" :key="ind" class="poccontainer">
+        <p>ListName {{l.listName}}</p>
+        <p v-if="l.list.length > 0"> Items: </p>
+        <ul v-if="l.list.length > 0">
+          <li v-for="(item, indice) in l.list" :key="indice">
+            <p v-if="item.termType == 'Literal'"><u>Literal:</u> <b>Datatype:</b> {{item.datatype.value}} <b>Value:</b> {{item.value}} <b>From:</b> {{item.from}}</p>
+            <p v-if="item.termType == 'NamedNode'"><u>NamedNode:</u> <b>Value:</b> {{item.value}} <b>From:</b> {{item.from}}</p>
+          </li>
+        </ul>
+      </div>
+    </div>
   </div>
 </template>
 <style>
@@ -61,21 +74,20 @@
 import store from "../store/index";
 const N3 = require("n3");
 const df = N3.DataFactory;
-//todo: List all workflow instances
-//todo: List all step instances
-//todo: List all data instances if applicable
+// todo: List all workflow instances
+// It is not reasonable to show all data instances to the user
+// It is reasonable to show contents of all lists to the user
+// It is not reasonable to show step instances to the user
 
 export default {
   name: "Home",
   components: {},
   methods: {
-    onWorkflowInvoke(workflow){
+    onWorkflowInvoke(workflow) {
       console.log("Workflow", workflow, "invoked!");
     }
   },
-  created() {
-    store.dispatch("fetchSpec");
-  },
+  created() {},
   computed: {
     users() {
       return store.state.users;
@@ -85,6 +97,9 @@ export default {
     },
     derivedDatatypes() {
       return store.state.derivedDatatypes;
+    },
+    lists(){
+      return store.state.lists.sort((a,b) => a.from > b.from);
     },
     appDesc() {
       return store.state.appDesc;

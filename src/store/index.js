@@ -27,6 +27,7 @@ export default new Vuex.Store({
     compositeDatatypes: [],
     derivedDatatypes: [],
     workflows: [],
+    lists: [],
     appUri: "",
     appDesc: "",
   },
@@ -45,25 +46,45 @@ export default new Vuex.Store({
     updateUsers(state, { users }) {
       state.users = users;
     },
+    addList(state, { list, listName }) {
+      state.lists.push({ list: list, listName: listName });
+    },
+    addQuad(state, { quad }) {
+      state.store.addQuad(quad);
+    },
+    setAppUri(state, { appUri }) {
+      state.appUri = appUri;
+    },
+    setAppDesc(state, { appDesc }) {
+      state.appDesc = appDesc;
+    },
+    setCompositeDatatypes(state, { compositeDatatypes }) {
+      state.compositeDatatypes = compositeDatatypes;
+    },
+    setDerivedDatatypes(state, { derivedDatatypes }) {
+      state.derivedDatatypes = derivedDatatypes;
+    },
+    setWorkflows(state, { workflows }) {
+      state.workflows = workflows;
+    }
   },
   actions: {
-    async login({ dispatch, commit }) {
+    async login({ dispatch, commit }, { vue }) {
       let session = await auth.currentSession();
       if (!session) session = await auth.login("https://solid.community");
-      commit("updateUserRootUrl", {
-        webId: session.webId,
-      });
       const url = new URL(session.webId);
       commit("login", {
         user: session.webId,
       });
       dispatch("initializeUser", {
         rootURI: `${url.protocol}//${url.hostname}`,
+        webId: session.webId,
+        vue: vue
       });
     },
-    async createWorkflowInstance({ state }, { workflow, user }) {
+    async createWorkflowInstance({ state }, { workflow, user, vue }) {
       if (!state.loggedIn) {
-        alert("You should be logged in to create workflow.");
+        vue.$bvToast.toast("You should be logged in to create workflow.");
         return;
       }
       const fc = new solidFileClient(auth);
@@ -76,79 +97,104 @@ export default new Vuex.Store({
       try {
         const res = await fc.postFile(
           state.userRoot +
-            "/pocSolid/workflow_instances/workflow_instance_" +
-            randomString,
+          "/pocSolid/workflow_instances/workflow_instance_" +
+          randomString,
           workflow_instance,
           "text/turtle"
         );
-        console.log(res);
+        //console.log(res);
         const res2 = await fc.createFolder(
           state.userRoot +
-            "/pocSolid/workflow_instances/" +
-            `${randomString}_step_instances`
+          "/pocSolid/workflow_instances/" +
+          `${randomString}_step_instances`
         );
-        console.log(res2);
+        //console.log(res2);
       } catch (error) {
-        console.log(error);
+        vue.$bvToast.toast("Cant create workflow make sure to give permission to this website's url");
       }
     },
     async fetchAllUsers({ state, commit }) {
       // Updates all users info
-
-      try {
-        const res = await axios.get("https://serkanozel.me/pocUsers.ttl");
-        console.log(res.data);
-        const parser = new N3.Parser({
-          baseIRI: "http://serkanozel.me/pocUsers.ttl",
-        });
-        parser.parse(res.data, (err, quad, prefixes) => {
-          if (err) console.log(err);
-          if (quad) {
-            console.log(quad);
-            state.store.addQuad(quad);
-          } else {
-            console.log("Prefixes used: ", prefixes);
-            const userQuads = state.store.getQuads(
-              df.namedNode("http://serkanozel.me/pocUsers.ttl#poc"),
-              df.namedNode(prefixes.vcard + "hasMember")
-            );
-            commit("updateUsers", { users: userQuads });
-          }
-        });
-      } catch (error) {
-        console.log(error);
-      }
+      const res = await axios.get("https://serkanozel.me/pocUsers.ttl");
+      //console.log(res.data);
+      const parser = new N3.Parser({
+        baseIRI: "http://serkanozel.me/pocUsers.ttl",
+      });
+      parser.parse(res.data, (err, quad, prefixes) => {
+        if (err) console.log(err);
+        if (quad) {
+          commit("addQuad", { quad: quad });
+        } else {
+          const userQuads = state.store.getQuads(
+            df.namedNode("http://serkanozel.me/pocUsers.ttl#poc"),
+            df.namedNode(prefixes.vcard + "hasMember")
+          );
+          commit("updateUsers", { users: userQuads });
+        }
+      });
     },
-    async initializeUser({ state }, { rootURI }) {
+    async initializeUser({ state, dispatch, commit }, { rootURI, webId, vue }) {
+      commit("updateUserRootUrl", {
+        webId: webId,
+      });
       const rootACL = constants.rootACL(rootURI);
 
       const fc = new solidFileClient(auth);
-      if (!(await fc.itemExists(rootURI + "/poc/"))) {
-        const res = await fc.createFolder(rootURI + "/poc/");
-        console.log(res);
-        const res2 = await fc.postFile(
-          rootURI + "/poc/.acl",
-          rootACL,
-          "text/turtle"
-        );
-        console.log(res2);
-        const res3 = await axios.post(
-          "https://serkanozel.me/pocUsers.ttl",
-          {
-            userIRI: `${rootURI}/profile/card#me`,
-          },
-          {
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }
-        );
-        console.log(res3);
+      // Create poc folder along with good permissions if not exists.
+      try {
+        if (!(await fc.itemExists(rootURI + "/poc/"))) {
+          const res = await fc.createFolder(rootURI + "/poc/");
+          const res2 = await fc.postFile(
+            rootURI + "/poc/.acl",
+            rootACL,
+            "text/turtle"
+          );
+        }
+      } catch (error) {
+        vue.$bvToast.toast("Could not create poc folder in your solid pod make sure you give permission to the app while you login");
       }
-      const res4 = await this.dispatch("fetchAllUsers");
-      console.log(res4);
 
-      // Write lists to users pod
+      // Bring all users info
+      try {
+        const res4 = await this.dispatch("fetchAllUsers");
+      } catch (error) {
+        vue.$bvToast.toast("Could not get all users info from http://serkanozel.me/pocUsers.ttl");
+      }
+
+
+      // If I am not in poc group, add me
+      let meIncluded = false;
+
+      state.users.forEach(u => {
+        if (u.object.value == webId) meIncluded = true;
+      });
+      if (!meIncluded) {
+        try {
+          const res3 = await axios.post(
+            "https://serkanozel.me/pocUsers.ttl",
+            {
+              userIRI: `${rootURI}/profile/card#me`,
+            },
+            {
+              headers: {
+                "Content-Type": "application/json",
+              },
+            }
+          );
+        } catch (error) {
+          vue.$bvToast.toast("Cannot add user to poc list at http://serkanozel.me/pocUsers.ttl. This is an important error app won't work. Make sure the site is working. Contact serkan.ozel@boun.edu.tr");
+        }
+      }
+
+
+      // Fetch specification info
+
+      try {
+        await dispatch("fetchSpec");
+      } catch (error) {
+        vue.$bvToast.toast("Could not fetch specification info from http://134.122.65.239:3030/ds/query, make sure it is working");
+      }
+      // Write lists to user's pod
 
       let listQuads = state.store.getQuads(
         null,
@@ -201,27 +247,84 @@ export default new Vuex.Store({
           if (
             !(await fc.itemExists(
               rootURI +
-                "/poc/data_instances/" +
-                value.substring(value.lastIndexOf("#") + 1) +
-                ".ttl"
+              "/poc/data_instances/" +
+              value.substring(value.lastIndexOf("#") + 1) +
+              ".ttl"
             ))
           ) {
             await fc.createFile(
               rootURI +
-                "/poc/data_instances/" +
-                value.substring(value.lastIndexOf("#") + 1) +
-                ".ttl",
+              "/poc/data_instances/" +
+              value.substring(value.lastIndexOf("#") + 1) +
+              ".ttl",
               result,
               "text/turtle"
             );
           }
         });
       });
+
+      // Fetch all lists from all users
+      const listUris = listQuads.map(x => x.subject.value);
+      state.lists = [];
+      listUris.forEach((x) => {
+        const list = [];
+        const listName = x.substring(
+          x.lastIndexOf("#") + 1
+        );
+        state.users.forEach(async (u) => {
+          const url = new URL(u.object.value);
+          const userRoot = `${url.protocol}//${url.hostname}`;
+          try {
+            const res = await fc.readFile(userRoot + "/poc/data_instances/" + listName + ".ttl");
+            const parser = new N3.Parser();
+            let headsOfLists = [];
+            const miniStore = new N3.Store();
+            parser.parse(res, (error, quad, prefixes) => {
+              if (quad) {
+                miniStore.addQuad(quad);
+                /* if (quad.predicate.value == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" || quad.predicate.value == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest") {
+                  console.log(JSON.stringify(quad));
+                } */
+                if (quad.predicate.value == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first") {
+                  headsOfLists.push(quad.subject.value);
+                }
+              } else {
+                // Filter out the ones that are rest of some node to find real head of lists
+                headsOfLists = headsOfLists.filter(item => {
+                  return miniStore.getQuads(null, df.namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"), df.blankNode(item)).length == 0;
+                });
+                headsOfLists.forEach(x => {
+                  let current = x;
+                  let quads = miniStore.getQuads(df.blankNode(current), df.namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first"), null);
+                  while (quads.length > 0 && quads[0].object.value != "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil") {
+                    const obj = quads[0].object;
+                    obj["from"] = u.object.value;
+                    list.push(obj);
+                    let rest = miniStore.getQuads(df.blankNode(current), df.namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"), null);
+                    current = rest[0].object.value;
+                    quads = miniStore.getQuads(df.blankNode(current), df.namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first"), null);
+                  }
+                });
+              }
+            });
+
+          } catch (error) {
+            vue.$bvToast.toast(`Can't read ${userRoot + "/poc/data_instances/" + listName + ".ttl"}`);
+            console.log(error);
+          }
+        });
+        commit("addList", {
+          listName: "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#" + listName,
+          list: list
+        });
+      });
+
     },
-    async checkLogin({ commit, dispatch }) {
+    async checkLogin({ commit, dispatch }, { vue }) {
       auth.trackSession((session) => {
         if (!session) {
-          dispatch("login");
+          dispatch("login", { vue: vue });
         } else {
           const url = new URL(session.webId);
           commit("login", {
@@ -229,16 +332,18 @@ export default new Vuex.Store({
           });
           dispatch("initializeUser", {
             rootURI: `${url.protocol}//${url.hostname}`,
+            webId: session.webId,
+            vue: vue
           });
         }
       });
     },
-    async logoutAction({ commit }) {
+    async logoutAction({ commit }, { vue }) {
       try {
         await auth.logout();
         commit("logout");
       } catch (error) {
-        console.log("Cannot logout");
+        vue.$bvToast.toast("Error while logout");
       }
     },
     async fetchSpec({ state, commit }) {
@@ -250,7 +355,7 @@ export default new Vuex.Store({
         qs.stringify(data)
       );
 
-      // Preprocessing, from sparql result to store
+      // Preprocessing, from sparql endpoint result to store
       res.data.results.bindings.forEach((x) => {
         let s, p, o;
         if (x.s.type == "uri") {
@@ -293,7 +398,7 @@ export default new Vuex.Store({
           o = df.blankNode(x.o.value);
         }
         const quad = df.quad(s, p, o);
-        state.store.addQuad(quad);
+        commit("addQuad", { quad: quad });
       });
       // Extract application name and description
       const ontologyQuad = state.store.getQuads(
@@ -302,18 +407,19 @@ export default new Vuex.Store({
         df.namedNode("http://www.w3.org/2002/07/owl#Ontology")
       );
       if (ontologyQuad.length > 0) {
-        state.appUri = ontologyQuad[0].subject.value;
+        commit("setAppUri", { appUri: ontologyQuad[0].subject.value });
         const ontologyCommentQuad = state.store.getQuads(
           df.namedNode(state.appUri),
           df.namedNode("http://www.w3.org/2000/01/rdf-schema#comment"),
           null
         );
-        state.appDesc =
-          ontologyCommentQuad.length > 0
+        commit("setAppDesc", {
+          appDesc: ontologyCommentQuad.length > 0
             ? ontologyCommentQuad[0].object.value
-            : "";
+            : ""
+        })
       }
-      // Composite Datatype Extract
+      // Composite Datatype Extraction
       let compositeDatatypeQuads = state.store.getQuads(
         null,
         null,
@@ -356,9 +462,9 @@ export default new Vuex.Store({
           datafields: dataFields,
         };
       });
-      state.compositeDatatypes = compositeDatatypeQuads;
+      commit("setCompositeDatatypes", { compositeDatatypes: compositeDatatypeQuads });
 
-      // Derived datatype extract
+      // Derived Datatypes Extraction
       let derivedDatatypeQuads = state.store.getQuads(
         null,
         null,
@@ -480,9 +586,9 @@ export default new Vuex.Store({
           },
         };
       });
-      state.derivedDatatypes = derivedDatatypeQuads;
+      commit("setDerivedDatatypes", { derivedDatatypes: derivedDatatypeQuads });
 
-      // Workflows extract
+      // Workflows Extraction
       let workflowQuads = state.store.getQuads(
         null,
         null,
@@ -508,7 +614,16 @@ export default new Vuex.Store({
           label: labelQuad.length > 0 ? labelQuad[0].object.value : "",
         };
       });
-      state.workflows = workflowQuads;
+      commit("setWorkflows", { workflows: workflowQuads });
     },
+    async deleteUserInfo({ state }, { vue }) {
+      const fc = new solidFileClient(auth);
+      try {
+        await fc.deleteFolder(state.userRoot + "/poc/");
+        vue.$bvToast.toast("All user info deleted");
+      } catch (error) {
+        vue.$bvToast.toast("Cannot delete user info");
+      }
+    }
   },
 });
