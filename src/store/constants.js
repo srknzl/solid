@@ -27,7 +27,7 @@ acl:agentGroup  <https://serkanozel.me/pocUsers.ttl#poc>.
 `;
 };
 
-/* export const workflowInstanceACL = (workflow, user, randomString) => {
+export const workflowInstanceACL = (workflow, user, randomString) => {
   return `
 @prefix services: <http://web.cmpe.boun.edu.tr/soslab/ontologies/poc/services#> .
 @prefix poc: <http://soslab.cmpe.boun.edu.tr/ontologies/poc_core.ttl#> .
@@ -40,9 +40,10 @@ poc:status "ongoing";
 dcterms:created "${new Date().toISOString()}"^^xsd:dateTime;
 dcterms:creator <${user}>;
 services:stepInstances <${randomString}_step_instances>.`;
-}; */
+};
 
 
 export default {
   rootACL: rootACL,
+  workflowInstanceACL: workflowInstanceACL
 };

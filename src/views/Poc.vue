@@ -52,11 +52,25 @@
       <h2>Lists</h2>
       <div v-for="(l,ind) in lists" :key="ind" class="poccontainer">
         <p>List {{ind+1}}: {{l.listName}}</p>
-        <p v-if="l.list.length > 0"> Items: </p>
+        <p v-if="l.list.length > 0">Items:</p>
         <ul v-if="l.list.length > 0">
           <li v-for="(item, indice) in l.list" :key="indice">
-            <p v-if="item.termType == 'Literal'"><u>Literal:</u> <b>Datatype:</b> {{item.datatype.value}} <b>Value:</b> {{item.value}} <b>From:</b> {{item.from}}</p>
-            <p v-if="item.termType == 'NamedNode'"><u>NamedNode:</u> <b>Value:</b> {{item.value}} <b>From:</b> {{item.from}}</p>
+            <p v-if="item.termType == 'Literal'">
+              <u>Literal:</u>
+              <b>Datatype:</b>
+              {{item.datatype.value}}
+              <b>Value:</b>
+              {{item.value}}
+              <b>From:</b>
+              {{item.from}}
+            </p>
+            <p v-if="item.termType == 'NamedNode'">
+              <u>NamedNode:</u>
+              <b>Value:</b>
+              {{item.value}}
+              <b>From:</b>
+              {{item.from}}
+            </p>
           </li>
         </ul>
       </div>
@@ -64,7 +78,7 @@
     <div style="marginTop: 1rem;" class="poccontainer">
       <h2>Workflow Instances</h2>
       <div v-for="(w,ind) in workflowInstances" :key="ind" class="poccontainer">
-        <p>Workflow Instance {{ind+1}}: {{"w"}}</p>
+        <p>Workflow Instance {{ind+1}}: {{w.url}}</p>
       </div>
     </div>
   </div>
@@ -86,17 +100,27 @@ const df = N3.DataFactory;
 // It is not reasonable to show step instances to the user
 
 export default {
-  name: "Home",
+  name: "Poc",
   components: {},
   methods: {
     onWorkflowInvoke(workflow) {
-      this.$bvToast.toast("Workflow "+ workflow.label+ " invoked!");
+      store.dispatch("createWorkflowInstance", {
+        workflowURI: workflow.uri,
+        userWebID: this.user,
+        vue: this
+      });
     }
   },
   created() {},
   computed: {
+    workflowInstances() {
+      return store.state.workflowInstances;
+    },
     users() {
       return store.state.users;
+    },
+    user() {
+      return store.state.user;
     },
     compositeDatatypes() {
       return store.state.compositeDatatypes;
@@ -104,8 +128,8 @@ export default {
     derivedDatatypes() {
       return store.state.derivedDatatypes;
     },
-    lists(){
-      return store.state.lists.sort((a,b) => a.from > b.from);
+    lists() {
+      return store.state.lists.sort((a, b) => a.from > b.from);
     },
     appDesc() {
       return store.state.appDesc;

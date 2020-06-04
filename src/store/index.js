@@ -68,7 +68,7 @@ export default new Vuex.Store({
     setWorkflows(state, { workflows }) {
       state.workflows = workflows;
     },
-    setWorkflowInstances(state, {workflowInstances}){
+    setWorkflowInstances(state, { workflowInstances }) {
       state.workflowInstances = workflowInstances;
     }
   },
@@ -86,7 +86,7 @@ export default new Vuex.Store({
         vue: vue
       });
     },
-    async createWorkflowInstance({ state }, { workflow, user, vue }) {
+    async createWorkflowInstance({ state }, { workflowURI, userWebID, vue }) {
       if (!state.loggedIn) {
         vue.$bvToast.toast("You should be logged in to create workflow.");
         return;
@@ -94,27 +94,26 @@ export default new Vuex.Store({
       const fc = new solidFileClient(auth);
       const randomString = generateRandomString();
       const workflow_instance = constants.workflowInstanceACL(
-        workflow,
-        user,
+        workflowURI,
+        userWebID,
         randomString
       );
       try {
         const res = await fc.postFile(
           state.userRoot +
-          "/pocSolid/workflow_instances/workflow_instance_" +
+          "/poc/workflow_instances/workflow_instance_" +
           randomString,
           workflow_instance,
           "text/turtle"
         );
-        //console.log(res);
         const res2 = await fc.createFolder(
           state.userRoot +
-          "/pocSolid/workflow_instances/" +
+          "/poc/workflow_instances/" +
           `${randomString}_step_instances`
         );
-        //console.log(res2);
+        vue.$bvToast.toast("Workflow instance created!");
       } catch (error) {
-        vue.$bvToast.toast("Cant create workflow make sure to give permission to this website's url");
+        vue.$bvToast.toast("Can't create workflow make sure to give permission to this website's url");
       }
     },
     async fetchAllUsers({ state, commit }) {
@@ -322,33 +321,28 @@ export default new Vuex.Store({
           listName: "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#" + listName,
           list: list
         });
-        
+
       });
 
       // Fetch all workflows instances from all users
 
       state.workflowInstances = [];
+      const workflowInstancesPool = []
       state.users.forEach(async (u, index) => {
         const url = new URL(u.object.value);
         const userRoot = `${url.protocol}//${url.hostname}`;
         let res;
         try {
-          res = fc.readFolder(userRoot+ "/poc/workflow_instances/");
+          res = await fc.readFolder(userRoot + "/poc/workflow_instances/");
         } catch (error) {
           vue.$bvToast.toast("Cannot read " + userRoot + "/poc/workflow_instances/");
         }
-        const parser = new N3.Parser();
-        const ministore = new N3.Store();
-        parser.parse(res, (err, quad, prefixes) => { // todo: check if this usage of res is correct & test workflow instances 
-          if(err)vue.$bvToast("Cannot parse workflow instances" + err);
-          if(quad){
-            ministore.addQuad(quad);
-          }else if(index == state.users.length-1){
-            state.workflowInstances = ministore.getQuads(null, df.namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#WorkflowInstance"));
-          }
+
+        res.files.forEach(file => {
+          workflowInstancesPool.push(file);
         });
       });
-
+      commit("setWorkflowInstances", { workflowInstances: workflowInstancesPool })
     },
     async checkLogin({ commit, dispatch }, { vue }) {
       auth.trackSession((session) => {
