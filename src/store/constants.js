@@ -30,7 +30,7 @@ acl:agentGroup  <https://serkanozel.me/pocUsers.ttl#poc>.
 export const workflowInstanceACL = (workflow, user, randomString) => {
   return `
 @prefix services: <http://web.cmpe.boun.edu.tr/soslab/ontologies/poc/services#> .
-@prefix poc: <http://soslab.cmpe.boun.edu.tr/ontologies/poc_core.ttl#> .
+@prefix poc: <http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 

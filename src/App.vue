@@ -63,7 +63,7 @@
 import store from "../src/store/index";
 
 export default {
-  created() {
+  created() {  
     store.dispatch("checkLogin", {vue: this});
   },
   methods: {

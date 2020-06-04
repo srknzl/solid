@@ -31,11 +31,15 @@ export default new Vuex.Store({
     lists: [],
     appUri: "",
     appDesc: "",
+    fetching: true
   },
   mutations: {
     login(state, { user }) {
       state.loggedIn = true;
       state.user = user;
+    },
+    setFetchingFalse(state) {
+      state.fetching = false;
     },
     logout(state) {
       state.loggedIn = false;
@@ -327,7 +331,8 @@ export default new Vuex.Store({
       // Fetch all workflows instances from all users
 
       state.workflowInstances = [];
-      const workflowInstancesPool = []
+      const workflowInstancesPool = [];
+
       state.users.forEach(async (u, index) => {
         const url = new URL(u.object.value);
         const userRoot = `${url.protocol}//${url.hostname}`;
@@ -335,14 +340,35 @@ export default new Vuex.Store({
         try {
           res = await fc.readFolder(userRoot + "/poc/workflow_instances/");
         } catch (error) {
-          vue.$bvToast.toast("Cannot read " + userRoot + "/poc/workflow_instances/");
+          console.log(userRoot + " does not have any workflow yet");
+          //vue.$bvToast.toast("Cannot read " + userRoot + "/poc/workflow_instances/");
         }
 
-        res.files.forEach(file => {
-          workflowInstancesPool.push(file);
+        res.files.forEach(async (file) => {
+          const fc = new solidFileClient(auth);
+          const res = await fc.readFile(file.url);
+          const parser = new N3.Parser({
+            baseIRI: file.url,
+          });
+          const miniStore = new N3.Store();
+          parser.parse(res, (err, quad, prefixes) => {
+            if (err) console.log(err);
+            if (quad) {
+              miniStore.addQuad(quad);
+            } else {
+              const datatypeQuads = miniStore.getQuads(
+                df.namedNode(file.url),
+                df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#datatype"),
+                null
+              );
+              workflowInstancesPool.push({ ...file, datatype: datatypeQuads[0].object.value });
+            }
+          });
         });
       });
-      commit("setWorkflowInstances", { workflowInstances: workflowInstancesPool })
+      commit("setWorkflowInstances", { workflowInstances: workflowInstancesPool });
+
+      commit("setFetchingFalse");
     },
     async checkLogin({ commit, dispatch }, { vue }) {
       auth.trackSession((session) => {
@@ -646,6 +672,15 @@ export default new Vuex.Store({
         vue.$bvToast.toast("All user info deleted");
       } catch (error) {
         vue.$bvToast.toast("Cannot delete user info");
+      }
+    },
+    async deleteAllWorkflowInstances({ state }, { vue }) {
+      const fc = new solidFileClient(auth);
+      try {
+        await fc.deleteFolder(state.userRoot + "/poc/workflow_instances/");
+        vue.$bvToast.toast("All user workflow instances deleted");
+      } catch (error) {
+        vue.$bvToast.toast("Cannot delete user workflow instances");
       }
     }
   },

@@ -2,10 +2,16 @@
   <div class="profile">
     <b-container>
       <b-row>
-        <p>Note: In order this button below to work, you need to grant all the permissions including "Control" in your preferences to this application url.</p>
+        <p>Note: In order these buttons below to work, you need to grant all the permissions including "Control" in your preferences to this application url.</p>
       </b-row>
       <b-row>
         <b-button variant="danger" @click="onDeleteUserInfo">Delete my all data in my pod</b-button>
+      </b-row>
+      <b-row>
+        <b-button
+          variant="danger"
+          @click="onDeleteUserWorkflowInstances"
+        >Delete my all workflow instances in my pod</b-button>
       </b-row>
     </b-container>
   </div>
@@ -30,6 +36,9 @@ export default {
   methods: {
     onDeleteUserInfo() {
       store.dispatch("deleteUserInfo", { vue: this });
+    },
+    onDeleteUserWorkflowInstances() {
+      store.dispatch("deleteAllWorkflowInstances", { vue: this });
     }
   }
 };

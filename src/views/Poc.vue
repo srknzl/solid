@@ -1,5 +1,9 @@
 <template>
   <div class="home">
+    <div class="d-flex justify-content-center mb-3">
+      <b-spinner v-if="fetching" label="Loading..."></b-spinner>
+    </div>
+    
     <h1>Current App: {{appUri || "Current application does not have a name or spec not loaded"}}</h1>
     <h2>Description: {{appDesc || "Current application does not have a description or spec not loaded"}}</h2>
     <div class="poccontainer">
@@ -78,7 +82,9 @@
     <div style="marginTop: 1rem;" class="poccontainer">
       <h2>Workflow Instances</h2>
       <div v-for="(w,ind) in workflowInstances" :key="ind" class="poccontainer">
-        <p>Workflow Instance {{ind+1}}: {{w.url}}</p>
+        <p><b>Workflow Instance</b> {{ind+1}}: {{w.url}}</p>
+        <p><b>Last modification</b> {{w.modified}}</p>
+        <p><b>Datatype</b> {{w.datatype}}</p>
       </div>
     </div>
   </div>
@@ -115,6 +121,9 @@ export default {
   computed: {
     workflowInstances() {
       return store.state.workflowInstances;
+    },
+    fetching() {
+      return store.state.fetching;
     },
     users() {
       return store.state.users;
