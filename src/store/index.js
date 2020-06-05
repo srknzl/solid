@@ -8,6 +8,20 @@ import qs from "querystring";
 const N3 = require("n3");
 const df = N3.DataFactory;
 
+
+
+const poc = "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#";
+const dcterms = "http://purl.org/dc/terms/";
+const rdfs = "http://www.w3.org/2000/01/rdf-schema#";
+const rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+const storytelling = "http://web.cmpe.boun.edu.tr/soslab/ontologies/storytelling#";
+const owl = "http://www.w3.org/2002/07/owl#";
+const xsd = "http://www.w3.org/2001/XMLSchema#";
+const fusekiEndpoint = "http://134.122.65.239:3030";
+const usersEndpoint = "http://serkanozel.me/pocUsers.ttl";
+const specGraph = "http://poc.core";
+
+
 Vue.use(Vuex);
 
 const generateRandomString = () => {
@@ -115,6 +129,7 @@ export default new Vuex.Store({
           "/poc/workflow_instances/" +
           `${randomString}_step_instances`
         );
+        const stepsQuads = state.store.getQuads()
         vue.$bvToast.toast("Workflow instance created!");
       } catch (error) {
         vue.$bvToast.toast("Can't create workflow make sure to give permission to this website's url");
@@ -122,10 +137,10 @@ export default new Vuex.Store({
     },
     async fetchAllUsers({ state, commit }) {
       // Updates all users info
-      const res = await axios.get("https://serkanozel.me/pocUsers.ttl");
+      const res = await axios.get(usersEndpoint);
       //console.log(res.data);
       const parser = new N3.Parser({
-        baseIRI: "http://serkanozel.me/pocUsers.ttl",
+        baseIRI: usersEndpoint,
       });
       parser.parse(res.data, (err, quad, prefixes) => {
         if (err) console.log(err);
@@ -133,7 +148,7 @@ export default new Vuex.Store({
           commit("addQuad", { quad: quad });
         } else {
           const userQuads = state.store.getQuads(
-            df.namedNode("http://serkanozel.me/pocUsers.ttl#poc"),
+            df.namedNode(usersEndpoint+"#poc"),
             df.namedNode(prefixes.vcard + "hasMember")
           );
           commit("updateUsers", { users: userQuads });
@@ -165,7 +180,7 @@ export default new Vuex.Store({
       try {
         const res4 = await this.dispatch("fetchAllUsers");
       } catch (error) {
-        vue.$bvToast.toast("Could not get all users info from http://serkanozel.me/pocUsers.ttl");
+        vue.$bvToast.toast(`Could not get all users info from ${usersEndpoint}`);
       }
 
 
@@ -178,7 +193,7 @@ export default new Vuex.Store({
       if (!meIncluded) {
         try {
           const res3 = await axios.post(
-            "https://serkanozel.me/pocUsers.ttl",
+            usersEndpoint,
             {
               userIRI: `${rootURI}/profile/card#me`,
             },
@@ -189,7 +204,7 @@ export default new Vuex.Store({
             }
           );
         } catch (error) {
-          vue.$bvToast.toast("Cannot add user to poc list at http://serkanozel.me/pocUsers.ttl. This is an important error app won't work. Make sure the site is working. Contact serkan.ozel@boun.edu.tr");
+          vue.$bvToast.toast(`Cannot add user to poc list at ${usersEndpoint}. This is an important error app won't work. Make sure the site is working. Contact serkan.ozel@boun.edu.tr`);
         }
       }
 
@@ -199,14 +214,14 @@ export default new Vuex.Store({
       try {
         await dispatch("fetchSpec");
       } catch (error) {
-        vue.$bvToast.toast("Could not fetch specification info from http://134.122.65.239:3030/ds/query, make sure it is working");
+        vue.$bvToast.toast(`Could not fetch specification info from ${fusekiEndpoint}/ds/query, make sure it is working`);
       }
       // Write lists to user's pod
 
       let listQuads = state.store.getQuads(
         null,
         null,
-        df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#List")
+        df.namedNode(poc+"List")
       );
 
       listQuads.forEach((x) => {
@@ -219,34 +234,33 @@ export default new Vuex.Store({
 
         const writer = new N3.Writer({
           prefixes: {
-            poc: "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#",
-            dcterms: "http://purl.org/dc/terms/",
-            rdf: "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-            xsd: "http://www.w3.org/2001/XMLSchema#",
-            rdfs: "http://www.w3.org/2000/01/rdf-schema#",
-            owl: "http://www.w3.org/2002/07/owl#",
-            storytelling:
-              "http://web.cmpe.boun.edu.tr/soslab/ontologies/storytelling#",
+            poc: poc,
+            dcterms: dcterms,
+            rdf: rdf,
+            xsd: xsd,
+            rdfs: rdfs,
+            owl: owl,
+            storytelling: storytelling
           },
         });
         writer.addQuads(relatedQuads);
         writer.addQuad(
           df.namedNode(x.subject.value),
-          df.namedNode("http://purl.org/dc/terms/created"),
+          df.namedNode(dcterms+"created"),
           df.literal(
             new Date().toISOString(),
-            df.namedNode("http://www.w3.org/2001/XMLSchema#datetime")
+            df.namedNode(xsd+"datetime")
           )
         );
         writer.addQuad(
           df.namedNode(x.subject.value),
-          df.namedNode("http://purl.org/dc/terms/creator"),
+          df.namedNode(dcterms+"creator"),
           df.namedNode(state.user)
         );
         writer.addQuad(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#items"
+            poc+"items"
           ),
           writer.list([])
         );
@@ -290,27 +304,27 @@ export default new Vuex.Store({
             parser.parse(res, (error, quad, prefixes) => {
               if (quad) {
                 miniStore.addQuad(quad);
-                /* if (quad.predicate.value == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first" || quad.predicate.value == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest") {
+                /* if (quad.predicate.value == rdf+"first" || quad.predicate.value == rdf+"rest") {
                   console.log(JSON.stringify(quad));
                 } */
-                if (quad.predicate.value == "http://www.w3.org/1999/02/22-rdf-syntax-ns#first") {
+                if (quad.predicate.value == rdf+"first") {
                   headsOfLists.push(quad.subject.value);
                 }
               } else {
                 // Filter out the ones that are rest of some node to find real head of lists
                 headsOfLists = headsOfLists.filter(item => {
-                  return miniStore.getQuads(null, df.namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"), df.blankNode(item)).length == 0;
+                  return miniStore.getQuads(null, df.namedNode(rdf+"rest"), df.blankNode(item)).length == 0;
                 });
                 headsOfLists.forEach(x => {
                   let current = x;
-                  let quads = miniStore.getQuads(df.blankNode(current), df.namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first"), null);
-                  while (quads.length > 0 && quads[0].object.value != "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil") {
+                  let quads = miniStore.getQuads(df.blankNode(current), df.namedNode(rdf+"first"), null);
+                  while (quads.length > 0 && quads[0].object.value != rdf+"nil") {
                     const obj = quads[0].object;
                     obj["from"] = u.object.value;
                     list.push(obj);
-                    let rest = miniStore.getQuads(df.blankNode(current), df.namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"), null);
+                    let rest = miniStore.getQuads(df.blankNode(current), df.namedNode(rdf+"rest"), null);
                     current = rest[0].object.value;
-                    quads = miniStore.getQuads(df.blankNode(current), df.namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first"), null);
+                    quads = miniStore.getQuads(df.blankNode(current), df.namedNode(rdf+"first"), null);
                   }
                 });
               }
@@ -322,7 +336,7 @@ export default new Vuex.Store({
           }
         });
         commit("addList", {
-          listName: "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#" + listName,
+          listName: poc+ listName,
           list: list
         });
 
@@ -358,7 +372,7 @@ export default new Vuex.Store({
             } else {
               const datatypeQuads = miniStore.getQuads(
                 df.namedNode(file.url),
-                df.namedNode("http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#datatype"),
+                df.namedNode(poc+"datatype"),
                 null
               );
               workflowInstancesPool.push({ ...file, datatype: datatypeQuads[0].object.value });
@@ -397,10 +411,10 @@ export default new Vuex.Store({
     },
     async fetchSpec({ state, commit }) {
       const data = {
-        query: "SELECT ?s ?p ?o WHERE { GRAPH<http://poc.core>{ ?s ?p ?o}}",
+        query: `SELECT ?s ?p ?o WHERE { GRAPH<${specGraph}>{ ?s ?p ?o}}`,
       };
       const res = await axios.post(
-        "http://134.122.65.239:3030/ds/query",
+        fusekiEndpoint+"/ds/query",
         qs.stringify(data)
       );
 
@@ -453,13 +467,13 @@ export default new Vuex.Store({
       const ontologyQuad = state.store.getQuads(
         null,
         null,
-        df.namedNode("http://www.w3.org/2002/07/owl#Ontology")
+        df.namedNode(owl+"Ontology")
       );
       if (ontologyQuad.length > 0) {
         commit("setAppUri", { appUri: ontologyQuad[0].subject.value });
         const ontologyCommentQuad = state.store.getQuads(
           df.namedNode(state.appUri),
-          df.namedNode("http://www.w3.org/2000/01/rdf-schema#comment"),
+          df.namedNode(rdfs+"comment"),
           null
         );
         commit("setAppDesc", {
@@ -473,7 +487,7 @@ export default new Vuex.Store({
         null,
         null,
         df.namedNode(
-          "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#CompositeDatatype"
+          poc+ "CompositeDatatype"
         )
       );
 
@@ -481,7 +495,7 @@ export default new Vuex.Store({
         let dataFields = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#dataField"
+            poc+"dataField"
           ),
           null
         );
@@ -489,13 +503,13 @@ export default new Vuex.Store({
           const fieldTypeQuad = state.store.getQuads(
             df.namedNode(y.object.value),
             df.namedNode(
-              "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#fieldType"
+              poc+"fieldType"
             ),
             null
           );
           const descriptionQuad = state.store.getQuads(
             df.namedNode(y.object.value),
-            df.namedNode("http://purl.org/dc/terms/description"),
+            df.namedNode(dcterms+"description"),
             null
           );
           return {
@@ -518,91 +532,91 @@ export default new Vuex.Store({
         null,
         null,
         df.namedNode(
-          "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#DerivedDatatype"
+          poc+"DerivedDatatype"
         )
       );
       derivedDatatypeQuads = derivedDatatypeQuads.map((x) => {
         const baseDatatypeQuad = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#baseDatatype"
+            poc+"baseDatatype"
           ),
           null
         );
         const maxFrameWidth = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFrameWidth"
+            poc+"maxFrameWidth"
           ),
           null
         );
         const minFrameWidth = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFrameWidth"
+            poc+"minFrameWidth"
           ),
           null
         );
         const maxFrameHeight = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFrameHeight"
+            poc+"maxFrameHeight"
           ),
           null
         );
         const minFrameHeight = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFrameHeight"
+            poc+"minFrameHeight"
           ),
           null
         );
         const maxTrackLength = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxTrackLength"
+            poc+"maxTrackLength"
           ),
           null
         );
         const minTrackLength = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minTrackLength"
+            poc+"minTrackLength"
           ),
           null
         );
         const maxFileSize = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxFileSize"
+            poc+"maxFileSize"
           ),
           null
         );
         const minFileSize = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#minFileSize"
+            poc+"minFileSize"
           ),
           null
         );
         const scaleWidth = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#scaleWidth"
+            poc+"scaleWidth"
           ),
           null
         );
         const scaleHeight = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#scaleHeight"
+            poc+"scaleHeight"
           ),
           null
         );
         const maxSize = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#maxSize"
+            poc+"maxSize"
           ),
           null
         );
@@ -648,12 +662,12 @@ export default new Vuex.Store({
       workflowQuads = workflowQuads.map((x) => {
         const labelQuad = state.store.getQuads(
           df.namedNode(x.subject.value),
-          df.namedNode("http://www.w3.org/2000/01/rdf-schema#label"),
+          df.namedNode(rdfs+"label"),
           null
         );
         const descriptionQuad = state.store.getQuads(
           df.namedNode(x.subject.value),
-          df.namedNode("http://purl.org/dc/terms/description"),
+          df.namedNode(dcterms+"description"),
           null
         );
         return {
