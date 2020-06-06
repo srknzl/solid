@@ -8,19 +8,58 @@ import qs from "querystring";
 const N3 = require("n3");
 const df = N3.DataFactory;
 
-
-
 const poc = "http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#";
 const dcterms = "http://purl.org/dc/terms/";
 const rdfs = "http://www.w3.org/2000/01/rdf-schema#";
 const rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
-const storytelling = "http://web.cmpe.boun.edu.tr/soslab/ontologies/storytelling#";
+const applicationName = "storytelling"; // Application name, this is used to store the users in a graph named accordingly in the sparql server 
+const appOntology = "http://web.cmpe.boun.edu.tr/soslab/ontologies/${applicationName}#"; // change to your application's uri 
 const owl = "http://www.w3.org/2002/07/owl#";
 const xsd = "http://www.w3.org/2001/XMLSchema#";
-const fusekiEndpoint = "http://134.122.65.239:3030";
-const usersEndpoint = "http://serkanozel.me/pocUsers.ttl";
-const specGraph = "http://poc.core";
+const fusekiEndpoint = "http://134.122.65.239:3030"; // This is where the spec and users is stored actually 
+const fusekiUsername = "admin";
+const fusekiPassword = "pw123";
+const datasetName = "ds";
+const specGraph = "http://poc.core"; // typically you do not need to change this
+const usersQuery = `
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX poc: <http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#>
+PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
+PREFIX dc: <http://purl.org/dc/elements/1.1/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 
+CONSTRUCT {?subject ?predicate ?object}
+  WHERE {
+      GRAPH <http://${applicationName}.users> {
+      ?subject ?predicate ?object
+  }
+}
+`;
+
+
+const addUsersGroupQuery = `
+
+BASE   <http://${applicationName}.users>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX poc: <http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#>
+PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
+PREFIX dc: <http://purl.org/dc/elements/1.1/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX acl:  <http://www.w3.org/ns/auth/acl#>
+
+INSERT DATA {
+GRAPH <http://${applicationName}.users> {
+    <> a                vcard:Group;
+    vcard:hasUID     <urn:uuid:8831CBAD-1111-2222-8563-F0F4787E5398:ABGroup>;
+    dc:created       "${new Date().toISOString()}"^^xsd:dateTime;
+    dc:modified      "${new Date().toISOString()}"^^xsd:dateTime.
+  }
+}
+`;
+
+
+
+const groupURI = `${fusekiEndpoint}/sparql/?query=${usersQuery}`;
 
 Vue.use(Vuex);
 
@@ -91,6 +130,34 @@ export default new Vuex.Store({
     }
   },
   actions: {
+    async init({ dispatch, commit }, { vue }) {
+      // check if users graph exists in the fuseki database 
+      const res = await axios.get(groupURI);
+      const miniStore = new N3.Store();
+      const parser = new N3.Parser();
+      parser.parse(res, async (err, quad, prefixes) => {
+        if (quad) {
+          miniStore.addQuad(quad);
+        } else {
+          if (miniStore.size == 0) {
+            const data = {
+              update: addUsersGroupQuery
+            };
+            try {
+              const res = await axios.post(fusekiEndpoint + `/${datasetName}/update`, qs.stringify(data), {
+                auth:{
+                  username: fusekiUsername,
+                  password: fusekiPassword
+                }
+              });
+            } catch (error) {
+              vue.$bvToast.toast("An error occured while trying to create user group, check fuseki server is up");
+            }
+            dispatch("checkLogin", { vue: vue });
+          }
+        }
+      });
+    },
     async login({ dispatch, commit }, { vue }) {
       let session = await auth.currentSession();
       if (!session) session = await auth.login("https://solid.community");
@@ -104,14 +171,14 @@ export default new Vuex.Store({
         vue: vue
       });
     },
-    async createWorkflowInstance({ state }, { workflowURI, userWebID, vue }) {
+    async createWorkflowInstance({ state, dispatch }, { workflowURI, userWebID, vue }) {
       if (!state.loggedIn) {
         vue.$bvToast.toast("You should be logged in to create workflow.");
         return;
       }
       const fc = new solidFileClient(auth);
       const randomString = generateRandomString();
-      const workflow_instance = constants.workflowInstanceACL(
+      const workflow_instance = constants.workflowInstanceTTL(
         workflowURI,
         userWebID,
         randomString
@@ -129,18 +196,189 @@ export default new Vuex.Store({
           "/poc/workflow_instances/" +
           `${randomString}_step_instances`
         );
-        const stepsQuads = state.store.getQuads()
-        vue.$bvToast.toast("Workflow instance created!");
+        const stepsQuads = state.store.getQuads(df.namedNode(workflowURI), df.namedNode(poc + "step"), null);
+        stepsQuads.forEach(async q => {
+          const stepURI = q.object.value;
+          const stepName = stepURI.substring(stepURI.lastIndexOf("#") + 1);
+          const stepInstanceTTL = constants.stepInstanceTTL(stepURI, userWebID);
+
+          await fc.postFile(
+            state.userRoot +
+            "/poc/workflow_instances/" +
+            `${randomString}_step_instances/` + stepName + ".ttl",
+            stepInstanceTTL,
+            "text/turtle"
+          );
+
+        });
+        const pipesQuads = state.store.getQuads(df.namedNode(workflowURI), df.namedNode(poc + "pipe"), null);
+        const pipes = [];
+        pipesQuads.forEach(el => {
+          pipes.push(el.object.value);
+        });
+        pipes.forEach(async pipe => {
+          //const isHuman = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf+"type"), df.namedNode(poc+"HumanPipe"));
+          const isDirect = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf + "type"), df.namedNode(poc + "DirectPipe"));
+          //const isPort = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf + "type"), df.namedNode(poc + "PortPipe"));
+          //const isControl = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf + "type"), df.namedNode(poc + "ControlPipe"));
+          if (isDirect.length == 0) {
+            const pipeName = pipe.substring(pipe.lastIndexOf("#") + 1);
+            await fc.postFile(
+              state.userRoot +
+              "/poc/workflow_instances/" +
+              `${randomString}_step_instances/` + pipeName + ".ttl",
+              "",
+              "text/turtle"
+            );
+          }
+        });
+        dispatch("executeWorkflowInstance", { workflowURI: workflowURI, workflowInstanceID: randomString, vue: vue });
+        vue.$bvToast.toast("Workflow instance created! Its execution started!");
       } catch (error) {
         vue.$bvToast.toast("Can't create workflow make sure to give permission to this website's url");
       }
     },
+    async executeWorkflowInstance({ state }, { workflowURI, workflowInstanceID, vue }) {
+      const fc = new solidFileClient(auth);
+
+      if (!(await fc.itemExists(state.userRoot +
+        "/poc/workflow_instances/workflow_instance_" + workflowInstanceID))) {// check if workflow exists
+        vue.$bvToast.toast("Workflow instance not found while trying to execute it!");
+        return;
+      }
+
+
+      // sort the steps according to their dependencies and find a step that has zero dependency or only human pipes
+
+      const stepQuads = state.store.getQuads(df.namedNode(workflowURI), df.namedNode(poc + "step"), null);
+
+      // get pipes
+      const res = await fc.readFolder(state.userRoot + "/poc/workflow_instances/" + workflowInstanceID + "_step_instances/");
+
+
+
+      const pipes = [];
+      res.files.forEach(file => {
+        const url = file.url;
+        // if there is a need for human input, return 
+        if (file.url.includes("human_input")) {
+          vue.$bvToast.toast("The workflow instance with id " + workflowInstanceID + " needs your input to be able execute, please go to profile and enter the necessary inputs");
+          return;
+        }
+        const fileName = url.substring(url.lastIndexOf("/") + 1);
+        const fileNameWithoutExtension = fileName.substring(0, fileName.length - 4);
+        const isPipe = state.store.getQuads(df.namedNode(appOntology + fileNameWithoutExtension), df.namedNode(rdf + "type"), df.namedNode(poc + "Pipe"));
+        if (isPipe.length > 0) {
+          const isHumanPipe = state.store.getQuads(df.namedNode(appOntology + fileNameWithoutExtension), df.namedNode(rdf + "type"), df.namedNode(poc + "HumanPipe"));
+          const isPortPipe = state.store.getQuads(df.namedNode(appOntology + fileNameWithoutExtension), df.namedNode(rdf + "type"), df.namedNode(poc + "PortPipe"));
+          const isControlPipe = state.store.getQuads(df.namedNode(appOntology + fileNameWithoutExtension), df.namedNode(rdf + "type"), df.namedNode(poc + "ControlPipe"));
+          const targetStep = state.store.getQuads(df.namedNode(appOntology + fileNameWithoutExtension), df.namedNode(poc + "targetStep"), null);
+          if (isHumanPipe.length > 0) {
+            pipes.push({
+              name: fileNameWithoutExtension,
+              type: "human",
+              step: targetStep[0].object.value
+            });
+          } else if (isPortPipe.length > 0) {
+            pipes.push({
+              name: fileNameWithoutExtension,
+              type: "port",
+              step: targetStep[0].object.value
+            });
+          } else if (isControlPipe.length > 0) {
+            pipes.push({
+              name: fileNameWithoutExtension,
+              type: "control",
+              step: targetStep[0].object.value
+            });
+          } else {
+            vue.$bvToast.toast("Warning! Pipe named " + fileNameWithoutExtension + " is not human, port or control pipe. ");
+          }
+        }
+      });
+      const steps = {};
+      stepQuads.forEach(async s => {
+        // check if step status is not completed before adding to steps that will be considered to run 
+        const res = await fc.readFile(s.object.value);
+        const miniStore = new N3.Store();
+        const parser = new N3.Parser();
+        parser.parse(res, (err, quad, prefixes) => {
+          if (quad) {
+            miniStore.addQuad(quad);
+          } else {
+            const status = miniStore.getQuads(null, df.namedNode(poc + "status"), null);
+            if (status.length > 0) {
+              const statusText = status[0].object.value;
+              if (statusText != "completed") {
+                steps[s.object.value] = {
+                  humanDependency: 0,
+                  executionDependency: 0
+                };
+              }
+            } else {
+              vue.$bvToast.toast(`Warning a step named ${s.object.value} in workflow instance ${workflowInstanceID} does not have status`);
+              return;
+            }
+          }
+        });
+      });
+      pipes.forEach(pipe => {
+        if (pipe.type == "port") {
+          steps[pipe.step].executionDependency++;
+        } else if (pipe.type == "human") {
+          steps[pipe.step].humanDependency++;
+        } else if (pipe.type == "control") {
+          steps[pipe.step].executionDependency++;
+        } else {
+          vue.$bvToast.toast("Warning a pipe named " + pipe.name + " has a wrong type! Not port, human and control");
+        }
+      });
+
+      let continueExecution = true;
+      // stop when a human step is selected to run, in this case create human_input_${pipeName} file in the step
+      // instances folder. Using the pipeName extract what is needed to be inputted by the user and display the 
+      // necessary forms to the user. 
+
+      while (continueExecution) {
+        // check if there is a step with no dependency and execute it
+        let stepToRun = "";
+        for (let key in steps) {
+          if (steps[key].humanDependency == 0 && steps[key].executionDependency == 0) {
+            stepToRun = key;
+            break;
+          }
+        }
+        if (stepToRun == "") { // there is not a step to run directly 
+          for (let key in steps) {
+            if (steps[key].executionDependency == 0) {
+              stepToRun = key;
+              break;
+            }
+          }
+        }
+        if (stepToRun == "") {
+          vue.$bvToast.toast("Workflow is malformed as there are not any step to be able to run! Possibly there is a cycle in the workflow.");
+          return;
+        }
+        // stepToRun holds step URI like appOntology:S0
+
+
+      }
+    },
     async fetchAllUsers({ state, commit }) {
       // Updates all users info
-      const res = await axios.get(usersEndpoint);
-      //console.log(res.data);
+      const res = await axios.get(fusekiEndpoint + `/${datasetName}/sparql`, {
+        params: {
+          query: usersQuery
+        },
+        auth:{
+          username: fusekiUsername,
+          password: fusekiPassword
+        }
+      });
+
       const parser = new N3.Parser({
-        baseIRI: usersEndpoint,
+        baseIRI: `http://${applicationName}.users`,
       });
       parser.parse(res.data, (err, quad, prefixes) => {
         if (err) console.log(err);
@@ -148,7 +386,7 @@ export default new Vuex.Store({
           commit("addQuad", { quad: quad });
         } else {
           const userQuads = state.store.getQuads(
-            df.namedNode(usersEndpoint+"#poc"),
+            df.namedNode(`http://${applicationName}.users`),
             df.namedNode(prefixes.vcard + "hasMember")
           );
           commit("updateUsers", { users: userQuads });
@@ -159,7 +397,7 @@ export default new Vuex.Store({
       commit("updateUserRootUrl", {
         webId: webId,
       });
-      const rootACL = constants.rootACL(rootURI);
+      const rootACL = constants.rootACL(rootURI, groupURI);
 
       const fc = new solidFileClient(auth);
       // Create poc folder along with good permissions if not exists.
@@ -178,13 +416,14 @@ export default new Vuex.Store({
 
       // Bring all users info
       try {
-        const res4 = await this.dispatch("fetchAllUsers");
+        await dispatch("fetchAllUsers");
       } catch (error) {
-        vue.$bvToast.toast(`Could not get all users info from ${usersEndpoint}`);
+        vue.$bvToast.toast(`Could not get all users info from fuseki server`);
       }
 
 
-      // If I am not in poc group, add me
+      // If the user is not in the poc group, add her
+      
       let meIncluded = false;
 
       state.users.forEach(u => {
@@ -192,19 +431,34 @@ export default new Vuex.Store({
       });
       if (!meIncluded) {
         try {
-          const res3 = await axios.post(
-            usersEndpoint,
-            {
-              userIRI: `${rootURI}/profile/card#me`,
-            },
+  
+          const data = {
+            update: `
+            BASE <http://${applicationName}.users>
+            PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
+
+            INSERT DATA {
+            GRAPH <http://${applicationName}.users> {
+                <> vcard:hasMember <${webId}>
+              }
+            }
+            `
+          };
+          await axios.post(
+            fusekiEndpoint + `/${datasetName}/update`,
+            qs.stringify(data),
             {
               headers: {
-                "Content-Type": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
               },
+              auth: {
+                username: fusekiUsername,
+                password: fusekiPassword
+              }
             }
           );
         } catch (error) {
-          vue.$bvToast.toast(`Cannot add user to poc list at ${usersEndpoint}. This is an important error app won't work. Make sure the site is working. Contact serkan.ozel@boun.edu.tr`);
+          vue.$bvToast.toast(`Cannot add user to poc list from fuseki server. Make sure fuseki server works`);
         }
       }
 
@@ -221,7 +475,7 @@ export default new Vuex.Store({
       let listQuads = state.store.getQuads(
         null,
         null,
-        df.namedNode(poc+"List")
+        df.namedNode(poc + "List")
       );
 
       listQuads.forEach((x) => {
@@ -240,27 +494,27 @@ export default new Vuex.Store({
             xsd: xsd,
             rdfs: rdfs,
             owl: owl,
-            storytelling: storytelling
+            appOntology: appOntology
           },
         });
         writer.addQuads(relatedQuads);
         writer.addQuad(
           df.namedNode(x.subject.value),
-          df.namedNode(dcterms+"created"),
+          df.namedNode(dcterms + "created"),
           df.literal(
             new Date().toISOString(),
-            df.namedNode(xsd+"datetime")
+            df.namedNode(xsd + "datetime")
           )
         );
         writer.addQuad(
           df.namedNode(x.subject.value),
-          df.namedNode(dcterms+"creator"),
+          df.namedNode(dcterms + "creator"),
           df.namedNode(state.user)
         );
         writer.addQuad(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"items"
+            poc + "items"
           ),
           writer.list([])
         );
@@ -307,24 +561,24 @@ export default new Vuex.Store({
                 /* if (quad.predicate.value == rdf+"first" || quad.predicate.value == rdf+"rest") {
                   console.log(JSON.stringify(quad));
                 } */
-                if (quad.predicate.value == rdf+"first") {
+                if (quad.predicate.value == rdf + "first") {
                   headsOfLists.push(quad.subject.value);
                 }
               } else {
                 // Filter out the ones that are rest of some node to find real head of lists
                 headsOfLists = headsOfLists.filter(item => {
-                  return miniStore.getQuads(null, df.namedNode(rdf+"rest"), df.blankNode(item)).length == 0;
+                  return miniStore.getQuads(null, df.namedNode(rdf + "rest"), df.blankNode(item)).length == 0;
                 });
                 headsOfLists.forEach(x => {
                   let current = x;
-                  let quads = miniStore.getQuads(df.blankNode(current), df.namedNode(rdf+"first"), null);
-                  while (quads.length > 0 && quads[0].object.value != rdf+"nil") {
+                  let quads = miniStore.getQuads(df.blankNode(current), df.namedNode(rdf + "first"), null);
+                  while (quads.length > 0 && quads[0].object.value != rdf + "nil") {
                     const obj = quads[0].object;
                     obj["from"] = u.object.value;
                     list.push(obj);
-                    let rest = miniStore.getQuads(df.blankNode(current), df.namedNode(rdf+"rest"), null);
+                    let rest = miniStore.getQuads(df.blankNode(current), df.namedNode(rdf + "rest"), null);
                     current = rest[0].object.value;
-                    quads = miniStore.getQuads(df.blankNode(current), df.namedNode(rdf+"first"), null);
+                    quads = miniStore.getQuads(df.blankNode(current), df.namedNode(rdf + "first"), null);
                   }
                 });
               }
@@ -336,7 +590,7 @@ export default new Vuex.Store({
           }
         });
         commit("addList", {
-          listName: poc+ listName,
+          listName: poc + listName,
           list: list
         });
 
@@ -372,7 +626,7 @@ export default new Vuex.Store({
             } else {
               const datatypeQuads = miniStore.getQuads(
                 df.namedNode(file.url),
-                df.namedNode(poc+"datatype"),
+                df.namedNode(poc + "datatype"),
                 null
               );
               workflowInstancesPool.push({ ...file, datatype: datatypeQuads[0].object.value });
@@ -410,12 +664,20 @@ export default new Vuex.Store({
       }
     },
     async fetchSpec({ state, commit }) {
-      const data = {
-        query: `SELECT ?s ?p ?o WHERE { GRAPH<${specGraph}>{ ?s ?p ?o}}`,
-      };
-      const res = await axios.post(
-        fusekiEndpoint+"/ds/query",
-        qs.stringify(data)
+      const res = await axios.get(
+        fusekiEndpoint + "/ds/query",
+        {
+          params: {
+            query: `SELECT ?s ?p ?o WHERE { GRAPH<${specGraph}>{ ?s ?p ?o}}`,
+          },
+          auth: {
+            username: fusekiUsername,
+            password: fusekiPassword,
+          },
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          }
+        }
       );
 
       // Preprocessing, from sparql endpoint result to store
@@ -467,13 +729,13 @@ export default new Vuex.Store({
       const ontologyQuad = state.store.getQuads(
         null,
         null,
-        df.namedNode(owl+"Ontology")
+        df.namedNode(owl + "Ontology")
       );
       if (ontologyQuad.length > 0) {
         commit("setAppUri", { appUri: ontologyQuad[0].subject.value });
         const ontologyCommentQuad = state.store.getQuads(
           df.namedNode(state.appUri),
-          df.namedNode(rdfs+"comment"),
+          df.namedNode(rdfs + "comment"),
           null
         );
         commit("setAppDesc", {
@@ -487,7 +749,7 @@ export default new Vuex.Store({
         null,
         null,
         df.namedNode(
-          poc+ "CompositeDatatype"
+          poc + "CompositeDatatype"
         )
       );
 
@@ -495,7 +757,7 @@ export default new Vuex.Store({
         let dataFields = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"dataField"
+            poc + "dataField"
           ),
           null
         );
@@ -503,13 +765,13 @@ export default new Vuex.Store({
           const fieldTypeQuad = state.store.getQuads(
             df.namedNode(y.object.value),
             df.namedNode(
-              poc+"fieldType"
+              poc + "fieldType"
             ),
             null
           );
           const descriptionQuad = state.store.getQuads(
             df.namedNode(y.object.value),
-            df.namedNode(dcterms+"description"),
+            df.namedNode(dcterms + "description"),
             null
           );
           return {
@@ -532,91 +794,91 @@ export default new Vuex.Store({
         null,
         null,
         df.namedNode(
-          poc+"DerivedDatatype"
+          poc + "DerivedDatatype"
         )
       );
       derivedDatatypeQuads = derivedDatatypeQuads.map((x) => {
         const baseDatatypeQuad = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"baseDatatype"
+            poc + "baseDatatype"
           ),
           null
         );
         const maxFrameWidth = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"maxFrameWidth"
+            poc + "maxFrameWidth"
           ),
           null
         );
         const minFrameWidth = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"minFrameWidth"
+            poc + "minFrameWidth"
           ),
           null
         );
         const maxFrameHeight = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"maxFrameHeight"
+            poc + "maxFrameHeight"
           ),
           null
         );
         const minFrameHeight = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"minFrameHeight"
+            poc + "minFrameHeight"
           ),
           null
         );
         const maxTrackLength = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"maxTrackLength"
+            poc + "maxTrackLength"
           ),
           null
         );
         const minTrackLength = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"minTrackLength"
+            poc + "minTrackLength"
           ),
           null
         );
         const maxFileSize = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"maxFileSize"
+            poc + "maxFileSize"
           ),
           null
         );
         const minFileSize = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"minFileSize"
+            poc + "minFileSize"
           ),
           null
         );
         const scaleWidth = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"scaleWidth"
+            poc + "scaleWidth"
           ),
           null
         );
         const scaleHeight = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"scaleHeight"
+            poc + "scaleHeight"
           ),
           null
         );
         const maxSize = state.store.getQuads(
           df.namedNode(x.subject.value),
           df.namedNode(
-            poc+"maxSize"
+            poc + "maxSize"
           ),
           null
         );
@@ -662,12 +924,12 @@ export default new Vuex.Store({
       workflowQuads = workflowQuads.map((x) => {
         const labelQuad = state.store.getQuads(
           df.namedNode(x.subject.value),
-          df.namedNode(rdfs+"label"),
+          df.namedNode(rdfs + "label"),
           null
         );
         const descriptionQuad = state.store.getQuads(
           df.namedNode(x.subject.value),
-          df.namedNode(dcterms+"description"),
+          df.namedNode(dcterms + "description"),
           null
         );
         return {

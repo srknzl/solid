@@ -64,7 +64,7 @@ import store from "../src/store/index";
 
 export default {
   created() {  
-    store.dispatch("checkLogin", {vue: this});
+    store.dispatch("init", {vue: this});
   },
   methods: {
     logout() {
