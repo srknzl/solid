@@ -183,7 +183,7 @@ export default new Vuex.Store({
           `${randomString}_step_instances`
         );
         const stepsQuads = state.store.getQuads(df.namedNode(workflowURI), df.namedNode(poc + "step"), null);
-        stepsQuads.forEach(async q => {
+        for (const q of stepsQuads) {
           const stepURI = q.object.value;
           const stepName = stepURI.substring(stepURI.lastIndexOf("#") + 1);
           const stepInstanceTTL = constants.stepInstanceTTL(stepURI, userWebID);
@@ -195,14 +195,15 @@ export default new Vuex.Store({
             stepInstanceTTL,
             "text/turtle"
           );
+        }
 
-        });
         const pipesQuads = state.store.getQuads(df.namedNode(workflowURI), df.namedNode(poc + "pipe"), null);
         const pipes = [];
         pipesQuads.forEach(el => {
           pipes.push(el.object.value);
         });
-        pipes.forEach(async pipe => {
+
+        for (const pipe of pipes) {
           //const isHuman = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf+"type"), df.namedNode(poc+"HumanPipe"));
           const isDirect = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf + "type"), df.namedNode(poc + "DirectPipe"));
           //const isPort = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf + "type"), df.namedNode(poc + "PortPipe"));
@@ -217,7 +218,7 @@ export default new Vuex.Store({
               "text/turtle"
             );
           }
-        });
+        }
         dispatch("executeWorkflowInstance", { workflowURI: workflowURI, workflowInstanceID: randomString, vue: vue });
         vue.$bvToast.toast("Workflow instance created! Its execution started!");
       } catch (error) {
@@ -227,8 +228,7 @@ export default new Vuex.Store({
     async executeWorkflowInstance({ state }, { workflowURI, workflowInstanceID, vue }) {
       const fc = new solidFileClient(auth);
 
-      if (!(await fc.itemExists(state.userRoot +
-        "/poc/workflow_instances/workflow_instance_" + workflowInstanceID))) {// check if workflow exists
+      if (!(await fc.itemExists(state.userRoot + "/poc/workflow_instances/workflow_instance_" + workflowInstanceID + ".ttl"))) {// check if workflow exists
         vue.$bvToast.toast("Workflow instance not found while trying to execute it!");
         return;
       }
@@ -283,9 +283,11 @@ export default new Vuex.Store({
         }
       });
       const steps = {};
-      stepQuads.forEach(async s => {
+      let counter = 0;
+      for (const s of stepQuads) {
         // check if step status is not completed before adding to steps that will be considered to run 
-        const res = await fc.readFile(s.object.value);
+        const stepName = s.object.value.substring(s.object.value.lastIndexOf("#") + 1);
+        const res = await fc.readFile(state.userRoot + "/poc/workflow_instances/" + workflowInstanceID + "_step_instances/" + stepName + ".ttl");
         const miniStore = new N3.Store();
         const parser = new N3.Parser();
         parser.parse(res, (err, quad, prefixes) => {
@@ -301,55 +303,68 @@ export default new Vuex.Store({
                   executionDependency: 0
                 };
               }
+              counter++;
+
+              if (counter == stepQuads.length) {
+                pipes.forEach(pipe => {
+                  console.log(pipe, steps[pipe.step]);
+                  if (pipe.type == "port") {
+                    steps[pipe.step].executionDependency++;
+                  } else if (pipe.type == "human") {
+                    steps[pipe.step].humanDependency++;
+                  } else if (pipe.type == "control") {
+                    steps[pipe.step].executionDependency++;
+                  } else {
+                    vue.$bvToast.toast("Warning a pipe named " + pipe.name + " has a wrong type! Not port, human and control");
+                  }
+                });
+
+                let continueExecution = true;
+                // stop when a human step is selected to run, in this case create human_input_${pipeName} file in the step
+                // instances folder. Using the pipeName extract what is needed to be inputted by the user and display the 
+                // necessary forms to the user. 
+
+                while (continueExecution) {
+                  // check if there is a step with no dependency and execute it
+                  let stepToRun = "";
+                  for (let key in steps) {
+                    if (steps[key].humanDependency == 0 && steps[key].executionDependency == 0) {
+                      stepToRun = key;
+                      break;
+                    }
+                  }
+                  if (stepToRun == "") { // there is not a step to run directly 
+                    for (let key in steps) {
+                      if (steps[key].executionDependency == 0) {
+                        stepToRun = key;
+                        break;
+                      }
+                    }
+                  }
+                  if (stepToRun == "") {
+                    vue.$bvToast.toast("Workflow is malformed as there are not any step to be able to run! Possibly there is a cycle in the workflow.");
+                    return;
+                  }
+                  // stepToRun holds step URI like appOntology:S0
+                  // todo: startExecution 
+                  console.log(stepToRun);
+                  continueExecution = false;
+
+                }
+              }
+
+
+
             } else {
               vue.$bvToast.toast(`Warning a step named ${s.object.value} in workflow instance ${workflowInstanceID} does not have status`);
               return;
             }
           }
         });
-      });
-      pipes.forEach(pipe => {
-        if (pipe.type == "port") {
-          steps[pipe.step].executionDependency++;
-        } else if (pipe.type == "human") {
-          steps[pipe.step].humanDependency++;
-        } else if (pipe.type == "control") {
-          steps[pipe.step].executionDependency++;
-        } else {
-          vue.$bvToast.toast("Warning a pipe named " + pipe.name + " has a wrong type! Not port, human and control");
-        }
-      });
-
-      let continueExecution = true;
-      // stop when a human step is selected to run, in this case create human_input_${pipeName} file in the step
-      // instances folder. Using the pipeName extract what is needed to be inputted by the user and display the 
-      // necessary forms to the user. 
-
-      while (continueExecution) {
-        // check if there is a step with no dependency and execute it
-        let stepToRun = "";
-        for (let key in steps) {
-          if (steps[key].humanDependency == 0 && steps[key].executionDependency == 0) {
-            stepToRun = key;
-            break;
-          }
-        }
-        if (stepToRun == "") { // there is not a step to run directly 
-          for (let key in steps) {
-            if (steps[key].executionDependency == 0) {
-              stepToRun = key;
-              break;
-            }
-          }
-        }
-        if (stepToRun == "") {
-          vue.$bvToast.toast("Workflow is malformed as there are not any step to be able to run! Possibly there is a cycle in the workflow.");
-          return;
-        }
-        // stepToRun holds step URI like appOntology:S0
-
-
       }
+
+
+
     },
     async fetchAllUsers({ state, commit }) {
       // Updates all users info

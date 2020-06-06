@@ -54,7 +54,7 @@ const stepInstanceTTL = (stepURI, userURI) => {
 poc:datatype <${stepURI}>;
 dcterms:created "${new Date().toISOString()}"^^xsd:dateTime;
 dcterms:creator <${userURI}>;
-poc:status "pending";
+poc:status "pending".
 `;
 // add services:performer and services:performedAt, update status after performal of the step instance
 
