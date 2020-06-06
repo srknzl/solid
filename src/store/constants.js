@@ -1,4 +1,4 @@
-export const rootACL = (rootURI, groupURI) => {
+export const rootACL = (rootURI) => {
   return `
 # Default ACL resource 
 
@@ -23,7 +23,7 @@ acl:accessTo <./>;
 acl:default <./>;
 acl:mode        acl:Read,
                 acl:Write;
-acl:agentGroup  <${groupURI}>.
+acl:agentGroup  <http://serkanozel.me/pocUsers.ttl#poc>.
 `;
 };
 

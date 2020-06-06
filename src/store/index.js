@@ -5,6 +5,7 @@ import solidFileClient from "solid-file-client";
 import axios from "axios";
 import constants from "./constants";
 import qs from "querystring";
+
 const N3 = require("n3");
 const df = N3.DataFactory;
 
@@ -16,30 +17,15 @@ const applicationName = "storytelling"; // Application name, this is used to sto
 const appOntology = "http://web.cmpe.boun.edu.tr/soslab/ontologies/${applicationName}#"; // change to your application's uri 
 const owl = "http://www.w3.org/2002/07/owl#";
 const xsd = "http://www.w3.org/2001/XMLSchema#";
+const vcard = "http://www.w3.org/2006/vcard/ns#";
+
 const fusekiEndpoint = "http://134.122.65.239:3030"; // This is where the spec and users is stored actually 
-const fusekiUsername = "admin";
-const fusekiPassword = "pw123";
 const datasetName = "ds";
 const specGraph = "http://poc.core"; // typically you do not need to change this
-const usersQuery = `
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX poc: <http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#>
-PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
-PREFIX dc: <http://purl.org/dc/elements/1.1/>
-PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-
-CONSTRUCT {?subject ?predicate ?object}
-  WHERE {
-      GRAPH <http://${applicationName}.users> {
-      ?subject ?predicate ?object
-  }
-}
-`;
-
+const groupURL = "https://serkanozel.me/pocUsers.ttl";
 
 const addUsersGroupQuery = `
-
-BASE   <http://${applicationName}.users>
+BASE <http://serkanozel.me/pocUsers.ttl>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX poc: <http://web.cmpe.boun.edu.tr/soslab/ontologies/poc#>
 PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
@@ -49,7 +35,7 @@ PREFIX acl:  <http://www.w3.org/ns/auth/acl#>
 
 INSERT DATA {
 GRAPH <http://${applicationName}.users> {
-    <> a                vcard:Group;
+    <#poc> a                vcard:Group;
     vcard:hasUID     <urn:uuid:8831CBAD-1111-2222-8563-F0F4787E5398:ABGroup>;
     dc:created       "${new Date().toISOString()}"^^xsd:dateTime;
     dc:modified      "${new Date().toISOString()}"^^xsd:dateTime.
@@ -59,7 +45,6 @@ GRAPH <http://${applicationName}.users> {
 
 
 
-const groupURI = `${fusekiEndpoint}/sparql/?query=${usersQuery}`;
 
 Vue.use(Vuex);
 
@@ -131,32 +116,33 @@ export default new Vuex.Store({
   },
   actions: {
     async init({ dispatch, commit }, { vue }) {
-      // check if users graph exists in the fuseki database 
-      const res = await axios.get(groupURI);
-      const miniStore = new N3.Store();
-      const parser = new N3.Parser();
-      parser.parse(res, async (err, quad, prefixes) => {
-        if (quad) {
-          miniStore.addQuad(quad);
-        } else {
-          if (miniStore.size == 0) {
-            const data = {
-              update: addUsersGroupQuery
-            };
-            try {
-              const res = await axios.post(fusekiEndpoint + `/${datasetName}/update`, qs.stringify(data), {
-                auth:{
-                  username: fusekiUsername,
-                  password: fusekiPassword
-                }
-              });
-            } catch (error) {
-              vue.$bvToast.toast("An error occured while trying to create user group, check fuseki server is up");
+      // check if users graph exists in the fuseki database
+      try {
+        const res = await axios.get(groupURL);
+        const miniStore = new N3.Store();
+        const parser = new N3.Parser();
+        parser.parse(res.data, async (err, quad, prefixes) => {
+          if (quad) {
+            miniStore.addQuad(quad);
+          } else {
+            if (miniStore.size == 0) {
+              const data = {
+                update: addUsersGroupQuery
+              };
+              try {
+                const resp = await axios.post(fusekiEndpoint + `/${datasetName}/update`, qs.stringify(data));
+              } catch (error) {
+                vue.$bvToast.toast("An error occured while trying to create user group, check fuseki server is up");
+              }
             }
             dispatch("checkLogin", { vue: vue });
+
           }
-        }
-      });
+        });
+      } catch (error) {
+        vue.$bvToast.toast("Error while initialize " + JSON.stringify(error));
+      }
+
     },
     async login({ dispatch, commit }, { vue }) {
       let session = await auth.currentSession();
@@ -367,18 +353,9 @@ export default new Vuex.Store({
     },
     async fetchAllUsers({ state, commit }) {
       // Updates all users info
-      const res = await axios.get(fusekiEndpoint + `/${datasetName}/sparql`, {
-        params: {
-          query: usersQuery
-        },
-        auth:{
-          username: fusekiUsername,
-          password: fusekiPassword
-        }
-      });
-
+      const res = await axios.get(groupURL);
       const parser = new N3.Parser({
-        baseIRI: `http://${applicationName}.users`,
+        baseIRI: `http://serkanozel.me/pocUsers.ttl`,
       });
       parser.parse(res.data, (err, quad, prefixes) => {
         if (err) console.log(err);
@@ -386,8 +363,8 @@ export default new Vuex.Store({
           commit("addQuad", { quad: quad });
         } else {
           const userQuads = state.store.getQuads(
-            df.namedNode(`http://${applicationName}.users`),
-            df.namedNode(prefixes.vcard + "hasMember")
+            df.namedNode(`http://serkanozel.me/pocUsers.ttl#poc`),
+            df.namedNode(vcard + "hasMember")
           );
           commit("updateUsers", { users: userQuads });
         }
@@ -397,7 +374,7 @@ export default new Vuex.Store({
       commit("updateUserRootUrl", {
         webId: webId,
       });
-      const rootACL = constants.rootACL(rootURI, groupURI);
+      const rootACL = constants.rootACL(rootURI);
 
       const fc = new solidFileClient(auth);
       // Create poc folder along with good permissions if not exists.
@@ -418,12 +395,13 @@ export default new Vuex.Store({
       try {
         await dispatch("fetchAllUsers");
       } catch (error) {
-        vue.$bvToast.toast(`Could not get all users info from fuseki server`);
+        console.log(error);
+        vue.$bvToast.toast(`Could not get all users info from group server`);
       }
 
 
       // If the user is not in the poc group, add her
-      
+
       let meIncluded = false;
 
       state.users.forEach(u => {
@@ -431,16 +409,14 @@ export default new Vuex.Store({
       });
       if (!meIncluded) {
         try {
-  
+
           const data = {
             update: `
-            BASE <http://${applicationName}.users>
+            BASE <http://serkanozel.me/pocUsers.ttl>
             PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
 
             INSERT DATA {
-            GRAPH <http://${applicationName}.users> {
-                <> vcard:hasMember <${webId}>
-              }
+              <#poc> vcard:hasMember <${webId}>
             }
             `
           };
@@ -450,10 +426,6 @@ export default new Vuex.Store({
             {
               headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
-              },
-              auth: {
-                username: fusekiUsername,
-                password: fusekiPassword
               }
             }
           );
@@ -669,10 +641,6 @@ export default new Vuex.Store({
         {
           params: {
             query: `SELECT ?s ?p ?o WHERE { GRAPH<${specGraph}>{ ?s ?p ?o}}`,
-          },
-          auth: {
-            username: fusekiUsername,
-            password: fusekiPassword,
           },
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
