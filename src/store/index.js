@@ -69,7 +69,9 @@ export default new Vuex.Store({
     lists: [],
     appUri: "",
     appDesc: "",
-    fetching: true
+    fetching: true,
+    execute: false,
+    fc: null
   },
   mutations: {
     login(state, { user }) {
@@ -112,7 +114,13 @@ export default new Vuex.Store({
     },
     setWorkflowInstances(state, { workflowInstances }) {
       state.workflowInstances = workflowInstances;
-    }
+    },
+    startExecution(state) {
+      state.execute = true;
+    },
+    stopExecution(state){
+      state.execute = false;
+    },
   },
   actions: {
     async init({ dispatch, commit }, { vue }) {
@@ -158,6 +166,7 @@ export default new Vuex.Store({
       });
     },
     async createWorkflowInstance({ state, dispatch }, { workflowURI, userWebID, vue }) {
+      //#region Create workflow instance, step instances, and control pipes of them in step instances
       if (!state.loggedIn) {
         vue.$bvToast.toast("You should be logged in to create workflow.");
         return;
@@ -169,6 +178,7 @@ export default new Vuex.Store({
         userWebID,
         randomString
       );
+
       try {
         const res = await fc.postFile(
           state.userRoot +
@@ -205,10 +215,10 @@ export default new Vuex.Store({
 
         for (const pipe of pipes) {
           //const isHuman = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf+"type"), df.namedNode(poc+"HumanPipe"));
-          const isDirect = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf + "type"), df.namedNode(poc + "DirectPipe"));
-          //const isPort = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf + "type"), df.namedNode(poc + "PortPipe"));
-          //const isControl = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf + "type"), df.namedNode(poc + "ControlPipe"));
-          if (isDirect.length == 0) {
+          // const isDirect = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf + "type"), df.namedNode(poc + "DirectPipe"));
+          // const isPort = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf + "type"), df.namedNode(poc + "PortPipe"));
+          const isControl = state.store.getQuads(df.namedNode(pipe), df.namedNode(rdf + "type"), df.namedNode(poc + "ControlPipe"));
+          if (isControl.length > 0) {
             const pipeName = pipe.substring(pipe.lastIndexOf("#") + 1);
             await fc.postFile(
               state.userRoot +
@@ -219,159 +229,160 @@ export default new Vuex.Store({
             );
           }
         }
+        //#endregion
         dispatch("executeWorkflowInstance", { workflowURI: workflowURI, workflowInstanceID: randomString, vue: vue });
         vue.$bvToast.toast("Workflow instance created! Its execution started!");
       } catch (error) {
         vue.$bvToast.toast("Can't create workflow make sure to give permission to this website's url");
       }
     },
-    async executeWorkflowInstance({ state, dispatch }, { workflowURI, workflowInstanceID, vue }) {
+    async executeWorkflowInstance({ state, dispatch,commit }, { workflowURI, workflowInstanceID, vue }) {
+
+      //#region Check if workflow instance exists
       const fc = new solidFileClient(auth);
 
       if (!(await fc.itemExists(state.userRoot + "/poc/workflow_instances/workflow_instance_" + workflowInstanceID + ".ttl"))) {// check if workflow exists
         vue.$bvToast.toast("Workflow instance not found while trying to execute it!");
         return;
       }
+      //#endregion
 
-
+      //#region Get all files inside step instances folder and return if human input is needed
       // sort the steps according to their dependencies and find a step that has zero dependency or only human pipes
 
-      const stepQuads = state.store.getQuads(df.namedNode(workflowURI), df.namedNode(poc + "step"), null);
 
-      // get pipes
+      // get all files in step instances folder
       const res = await fc.readFolder(state.userRoot + "/poc/workflow_instances/" + workflowInstanceID + "_step_instances/");
 
-
-
-      const pipes = [];
       res.files.forEach(file => {
-        const url = file.url;
         // if there is a need for human input, return 
         if (file.url.includes("human_input")) {
           vue.$bvToast.toast("The workflow instance with id " + workflowInstanceID + " needs your input to be able execute, please go to profile and enter the necessary inputs");
           return;
         }
-        const fileName = url.substring(url.lastIndexOf("/") + 1);
-        const fileNameWithoutExtension = fileName.substring(0, fileName.length - 4);
-        const isPipe = state.store.getQuads(df.namedNode(appOntology + fileNameWithoutExtension), df.namedNode(rdf + "type"), df.namedNode(poc + "Pipe"));
+      });
+      //#endregion
+
+      //#region Get all pipes in an array in own format 
+      const pipeQuads = state.store.getQuads(df.namedNode(workflowURI), df.namedNode(poc + "pipe"), null);
+      const pipes = []; // will hold all pipes in our data format
+      pipeQuads.forEach(quad => {
+        const uri = quad.object.value;
+        const pipeName = uri.substring(uri.lastIndexOf("#") + 1);
+        const isPipe = state.store.getQuads(df.namedNode(appOntology + pipeName), df.namedNode(rdf + "type"), df.namedNode(poc + "Pipe"));
         if (isPipe.length > 0) {
-          const isHumanPipe = state.store.getQuads(df.namedNode(appOntology + fileNameWithoutExtension), df.namedNode(rdf + "type"), df.namedNode(poc + "HumanPipe"));
-          const isPortPipe = state.store.getQuads(df.namedNode(appOntology + fileNameWithoutExtension), df.namedNode(rdf + "type"), df.namedNode(poc + "PortPipe"));
-          const isControlPipe = state.store.getQuads(df.namedNode(appOntology + fileNameWithoutExtension), df.namedNode(rdf + "type"), df.namedNode(poc + "ControlPipe"));
-          const targetStep = state.store.getQuads(df.namedNode(appOntology + fileNameWithoutExtension), df.namedNode(poc + "targetStep"), null);
+          const isHumanPipe = state.store.getQuads(df.namedNode(appOntology + pipeName), df.namedNode(rdf + "type"), df.namedNode(poc + "HumanPipe"));
+          const isPortPipe = state.store.getQuads(df.namedNode(appOntology + pipeName), df.namedNode(rdf + "type"), df.namedNode(poc + "PortPipe"));
+          const isControlPipe = state.store.getQuads(df.namedNode(appOntology + pipeName), df.namedNode(rdf + "type"), df.namedNode(poc + "ControlPipe"));
+          const isDirectPipe = state.store.getQuads(df.namedNode(appOntology + pipeName), df.namedNode(rdf + "type"), df.namedNode(poc + "DirectPipe"));
+          const targetStep = state.store.getQuads(df.namedNode(appOntology + pipeName), df.namedNode(poc + "targetStep"), null);
+          const pipe = {
+            name: pipeName,
+            step: targetStep[0].object.value
+          };
+
           if (isHumanPipe.length > 0) {
-            pipes.push({
-              name: fileNameWithoutExtension,
-              type: "human",
-              step: targetStep[0].object.value
-            });
+            pipe.type = "human";
           } else if (isPortPipe.length > 0) {
-            pipes.push({
-              name: fileNameWithoutExtension,
-              type: "port",
-              step: targetStep[0].object.value
-            });
+            pipe.type = "port";
           } else if (isControlPipe.length > 0) {
-            pipes.push({
-              name: fileNameWithoutExtension,
-              type: "control",
-              step: targetStep[0].object.value
-            });
+            pipe.type = "control";
+          } else if (isDirectPipe.length > 0) {
+            pipe.type = "direct";
           } else {
-            vue.$bvToast.toast("Warning! Pipe named " + fileNameWithoutExtension + " is not human, port or control pipe. ");
+            vue.$bvToast.toast("Warning! Pipe named " + pipeName + " is not human, port or control pipe. ");
+            return;
           }
+          pipes.push(pipe);
         }
       });
+      //#endregion
+
+      //#region Count all steps human and execution dependencies
+      const stepQuads = state.store.getQuads(df.namedNode(workflowURI), df.namedNode(poc + "step"), null);
       const steps = {};
-      let counter = 0;
       for (const s of stepQuads) {
         // check if step status is not completed before adding to steps that will be considered to run 
         const stepName = s.object.value.substring(s.object.value.lastIndexOf("#") + 1);
         const res = await fc.readFile(state.userRoot + "/poc/workflow_instances/" + workflowInstanceID + "_step_instances/" + stepName + ".ttl");
         const miniStore = new N3.Store();
         const parser = new N3.Parser();
-        parser.parse(res, (err, quad, prefixes) => {
-          if (quad) {
-            miniStore.addQuad(quad);
-          } else {
-            const status = miniStore.getQuads(null, df.namedNode(poc + "status"), null);
-            if (status.length > 0) {
-              const statusText = status[0].object.value;
-              if (statusText != "completed") {
-                steps[s.object.value] = {
-                  humanDependency: 0,
-                  executionDependency: 0
-                };
-              }
-              counter++;
-
-              if (counter == stepQuads.length) {
-                pipes.forEach(pipe => {
-                  console.log(pipe, steps[pipe.step]);
-                  if (pipe.type == "port") {
-                    steps[pipe.step].executionDependency++;
-                  } else if (pipe.type == "human") {
-                    steps[pipe.step].humanDependency++;
-                  } else if (pipe.type == "control") {
-                    steps[pipe.step].executionDependency++;
-                  } else {
-                    vue.$bvToast.toast("Warning a pipe named " + pipe.name + " has a wrong type! Not port, human and control");
-                  }
-                });
-
-                let continueExecution = true;
-                // stop when a human step is selected to run, in this case create human_input_${pipeName} file in the step
-                // instances folder. Using the pipeName extract what is needed to be inputted by the user and display the 
-                // necessary forms to the user. 
-
-                while (continueExecution) {
-                  // check if there is a step with no dependency and execute it
-                  let stepToRun = "";
-                  for (let key in steps) {
-                    if (steps[key].humanDependency == 0 && steps[key].executionDependency == 0) {
-                      stepToRun = key;
-                      break;
-                    }
-                  }
-                  if (stepToRun == "") { // there is not a step to run directly 
-                    for (let key in steps) {
-                      if (steps[key].executionDependency == 0) {
-                        stepToRun = key;
-                        break;
-                      }
-                    }
-                  }
-                  if (stepToRun == "") {
-                    vue.$bvToast.toast("Workflow is malformed as there are not any step to be able to run! Possibly there is a cycle in the workflow.");
-                    return;
-                  }
-                  // stepToRun holds step URI like appOntology:S0
-
-                  // continueExecution = false;
-
-                  if (steps[stepToRun].humanDependency == 0) {  // Execute the step right away
-                    dispatch("executeStepInstance", { vue: vue, stepToRun: stepToRun, workflowURI: workflowURI, workflowInstanceID: workflowInstanceID });
-                  } else {
-                    // todo ask for human input
-                    console.log("Human input");
-                  }
-                }
-              }
-
-
-
-            } else {
-              vue.$bvToast.toast(`Warning a step named ${s.object.value} in workflow instance ${workflowInstanceID} does not have status`);
-              return;
-            }
+        const quads = parser.parse(res);
+        miniStore.addQuads(quads);
+        const status = miniStore.getQuads(null, df.namedNode(poc + "status"), null);
+        if (status.length > 0) {
+          const statusText = status[0].object.value;
+          if (statusText != "completed") {
+            steps[s.object.value] = {
+              humanDependency: 0,
+              executionDependency: 0
+            };
           }
-        });
+        } else {
+          vue.$bvToast.toast(`Warning a step named ${s.object.value} in workflow instance ${workflowInstanceID} does not have status`);
+          return;
+        }
       }
 
+      pipes.forEach(pipe => {
+        if (pipe.type == "port") {
+          steps[pipe.step].executionDependency++;
+        } else if (pipe.type == "human") {
+          steps[pipe.step].humanDependency++;
+        } else if (pipe.type == "control") {
+          steps[pipe.step].executionDependency++;
+        } else if(pipe.type != "direct") {
+          vue.$bvToast.toast("Warning a pipe named " + pipe.name + " has a wrong type! Not port, human, direct and control");
+        }
+      });
+      //#endregion
+
+      //#region Start execution loop 
+      
+      // stop when
+      // 1. a human step needs to run, in this case create human_input_${stepName} file in the step instances folder.
+      commit("startExecution");
+      while (state.execute) {
+        // check if there is a step with no dependency and execute it
+        let stepToRun = "";
+        for (let key in steps) {
+          if (steps[key].humanDependency == 0 && steps[key].executionDependency == 0) {
+            stepToRun = key;
+            break;
+          }
+        }
+        if (stepToRun == "") {
+          for (let key in steps) {
+            if (steps[key].executionDependency == 0) {
+              stepToRun = key;
+              break;
+            }
+          }
+        }
+        if (stepToRun == "") {
+          vue.$bvToast.toast("Workflow is malformed as there are not any step to be able to run! Possibly there is a cycle in the workflow.");
+          commit("stopExecution");
+          return;
+        }
+        // stepToRun holds step URI like appOntology:S0
+
+        // continueExecution = false;
+
+        if (steps[stepToRun].humanDependency == 0) {  // Execute the step right away
+          await dispatch("executeStepInstance", { vue: vue, stepToRun: stepToRun, workflowURI: workflowURI, workflowInstanceID: workflowInstanceID });
+        } else {
+          vue.$bvToast.toast("Your input is needed in order to continue this workflow. Please go to your profile page and add details.");
+          const stepName = stepToRun.substring(stepToRun.lastIndexOf("#") + 1);
+          await fc.postFile(state.userRoot + `/poc/workflow_instances/${workflowInstanceID}_step_instances/human_input_${stepName}.ttl`, "");
+          commit("stopExecution");
+        }
+      }
+      //#endregion
 
 
     },
-    async executeStepInstance({ state, dispatch }, { vue, stepToRun, workflowURI, workflowInstanceID }) {
+    async executeStepInstance({ state, dispatch, commit }, { vue, stepToRun, workflowURI, workflowInstanceID }) {
+      //#region Find out which step to execute, get input and output ports in our own format
       const isCreateStep = state.store.getQuads(df.namedNode(stepToRun), df.namedNode(rdf + "type"), df.namedNode(poc + "CreateStep"));
       const isDeleteStep = state.store.getQuads(df.namedNode(stepToRun), df.namedNode(rdf + "type"), df.namedNode(poc + "DeleteStep"));
       const isDisplayStep = state.store.getQuads(df.namedNode(stepToRun), df.namedNode(rdf + "type"), df.namedNode(poc + "DisplayStep"));
@@ -413,10 +424,10 @@ export default new Vuex.Store({
         }
       });
       if (flag) return;
-      // validate inputPorts first than start execution
+      //#endregion
 
       if (isCreateStep.length > 0) {
-        // A create step has 2 inputports(datatype, object) and an output port(result)
+          //#region Validation
         const checklist = [0, 0, 0];
         if (inputPorts.length != 2) {
           vue.$bvToast.toast("The CreateStep " + stepToRun + " does not have exactly 2 input ports");
@@ -441,7 +452,10 @@ export default new Vuex.Store({
         if (!checklist[0] || !checklist[1] || !checklist[2]) {
           vue.$bvToast.toast("The CreateStep " + stepToRun + " does not have ports labeled correctly");
           return;
-        } else { // Check complete start execution
+        }
+        else {
+          //#endregion
+          //#region Get ports and pipes of them 
           const datatypePort = inputPorts[0].label == "datatype" ? inputPorts[0] : inputPorts[1];
           const objectPort = inputPorts[0].label == "object" ? inputPorts[0] : inputPorts[1];
           const dataTypePipe = state.store.getQuads(null, df.namedNode(poc + "targetPort"), df.namedNode(datatypePort.uri));
@@ -449,13 +463,14 @@ export default new Vuex.Store({
 
           const fc = new solidFileClient(auth);
 
-          if (dataTypePipe.length == 0 || objectPipe.length == 0) {
+          if (dataTypePipe.length == 0 || objectPipe.length == 0) { // Check if there are pipes that come in to the ports 
             vue.$bvToast.toast("The CreateStep " + stepToRun + " does not have pipes that targets both datatype and object ports");
             return;
           }
           const datatypePipeURI = dataTypePipe[0].subject.value;
           const objectPipeURI = objectPipe[0].subject.value;
-
+          //#endregion
+          //#region Datatype Port
           const isDatatypePipeHumanPipe = state.store.getQuads(df.namedNode(datatypePipeURI), df.namedNode(rdf + "type", df.namedNode(poc + "HumanPipe")));
           const isDatatypePipeDirectPipe = state.store.getQuads(df.namedNode(datatypePipeURI), df.namedNode(rdf + "type", df.namedNode(poc + "DirectPipe")));
           const isDatatypePipeControlPipe = state.store.getQuads(df.namedNode(datatypePipeURI), df.namedNode(rdf + "type", df.namedNode(poc + "ControlPipe")));
@@ -466,9 +481,13 @@ export default new Vuex.Store({
 
           let datatype;
           let object;
+          // If datatype is entered by human it is stored directly in the step_instances folder 
+          // If object is entered bu human, if it is a complex data there is a reference value binding in the step_instances folder to a data_instance in data_instances folder
+          // If the object is a xsd datatype it is stored in step instances folder
 
           if (isDatatypePipeHumanPipe.length > 0) { // if it is human pipe the data should be in the pod of the user
             if (!(await fc.itemExists(datatypePortDataLocation))) {
+              commit("stopExecution");
               vue.$bvToast.toast("The inputport " + datatypePort.name + " that should be entered by the human does not exists.");
               return;
             }
@@ -483,21 +502,37 @@ export default new Vuex.Store({
               datatype = uriValueQuad[0].object.value;
             } else if (literalValueQuad.length > 0) {
               vue.$bvToast.toast("Into inputport " + datatypePort.name + ", the datatype entered by human cannot be literal")
+              commit("stopExecution");
               return;
             } else {
               vue.$bvToast.toast("Into inputport " + datatypePort.name + ", the datatype entered by human is possibly empty or malformed")
+              commit("stopExecution");
               return;
             }
 
           } else if (isDatatypePipeControlPipe.length > 0) {
             vue.$bvToast.toast("Into inputport " + datatypePort.name + ", there is an control pipe which is illegal");
+            commit("stopExecution");
             return;
           } else if (isDatatypePipeDirectPipe.length > 0) {
-            // todo: find out what is inside the direct pipe 
+            const hasSourceURIValue = state.store.getQuads(df.namedNode(datatypePipeURI), df.namedNode(poc + "sourceUriValue"), null);
+            const hasSourceLiteralValue = state.store.getQuads(df.namedNode(datatypePipeURI), df.namedNode(poc + "sourceLiteralValue"), null);
+            if (hasSourceURIValue.length > 0) {
+              datatype = hasSourceURIValue[0].object.value;
+            } else if (hasSourceLiteralValue.length > 0) {
+              vue.$bvToast.toast("The datatype port " + datatypePort.name + " has a direct pipe with a literal value which is wrong");
+              commit("stopExecution");
+              return;
+            } else {
+              vue.$bvToast.toast("The datatype port " + datatypePort.name + " has a direct pipe without a value");
+              commit("stopExecution");
+              return;
+            }
           } else if (isDatatypePipePortPipe.length > 0) {
             // There should be a inputPort entry in the step instances folder. 
             if (!(await fc.itemExists(datatypePortDataLocation))) {
               vue.$bvToast.toast("The inputport " + datatypePort.name + " that should be created by automation does not exists");
+              commit("stopExecution");
               return;
             }
             const res = await fc.readFile(datatypePortDataLocation);
@@ -511,16 +546,20 @@ export default new Vuex.Store({
               datatype = uriValueQuad[0].object.value;
             } else if (literalValueQuad.length > 0) {
               vue.$bvToast.toast("Into inputport " + datatypePort.name + ", the datatype entered by automation cannot be literal")
+              commit("stopExecution");
               return;
             } else {
               vue.$bvToast.toast("Into inputport " + datatypePort.name + ", the datatype entered by automation is possibly empty or malformed")
+              commit("stopExecution");
               return;
             }
           } else {
             vue.$bvToast.toast("The type of pipe " + datatypePipeURI + " is not humanpipe, control pipe, direct pipe or port pipe");
+            commit("stopExecution");
             return;
           }
-
+          //#endregion
+          //#region Object Port
           const isObjectPipeHumanPipe = state.store.getQuads(df.namedNode(objectPipeURI), df.namedNode(rdf + "type", df.namedNode(poc + "HumanPipe")));
           const isObjectPipeDirectPipe = state.store.getQuads(df.namedNode(objectPipeURI), df.namedNode(rdf + "type", df.namedNode(poc + "DirectPipe")));
           const isObjectPipeControlPipe = state.store.getQuads(df.namedNode(objectPipeURI), df.namedNode(rdf + "type", df.namedNode(poc + "ControlPipe")));
@@ -541,14 +580,14 @@ export default new Vuex.Store({
             const literalValueQuad = miniStore.getQuads(null, df.namedNode(poc + "literalValue"), null);
             if (uriValueQuad.length > 0) {
               object = uriValueQuad[0].object.value;
-              const x = state.store.getQuads(df.namedNode(object), df.namedNode(rdf+"type"), df.namedNode(datatype));
-              if(x.length == 0){
+              const datatypeCheck = state.store.getQuads(df.namedNode(object), df.namedNode(rdf + "type"), df.namedNode(datatype));
+              if (datatypeCheck.length == 0) {
                 vue.$bvToast.toast("The datatype of the port " + objectPort.name + " does not match the datatype of the datatype port " + datatypePort.name);
                 return;
               }
             } else if (literalValueQuad.length > 0) {
               object = literalValueQuad[0].object.value;
-              if (datatype != literalValueQuad[0].object.datatype.value){
+              if (datatype != literalValueQuad[0].object.datatype.value) {
                 vue.$bvToast.toast("The datatype of the port " + objectPort.name + " does not match the datatype of the datatype port " + datatypePort.name);
                 return;
               }
@@ -560,7 +599,20 @@ export default new Vuex.Store({
             vue.$bvToast.toast("Into inputport " + datatypePort.name + ", there is an control pipe which is illegal");
             return;
           } else if (isObjectPipeDirectPipe.length > 0) {
-             // todo: find out what is inside the direct pipe 
+            const hasSourceURIValue = state.store.getQuads(df.namedNode(objectPipeURI), df.namedNode(poc + "sourceUriValue"), null);
+            const hasSourceLiteralValue = state.store.getQuads(df.namedNode(objectPipeURI), df.namedNode(poc + "sourceLiteralValue"), null);
+            if (hasSourceURIValue.length > 0) {
+              object = hasSourceURIValue[0].object.value;
+            } else if (hasSourceLiteralValue.length > 0) {
+              object = hasSourceLiteralValue[0].object.value;
+              if (hasSourceLiteralValue[0].object.datatype.value != datatype) {
+                vue.$bvToast.toast("The object port " + objectPort.name + " has a direct pipe with a literal value that does not match the datatype");
+                return;
+              }
+            } else {
+              vue.$bvToast.toast("The datatype port " + datatypePort.name + " has a direct pipe without a value");
+              return;
+            }
           } else if (isObjectPipePortPipe.length > 0) {
             if (!(await fc.itemExists(objectPortDataLocation))) {
               vue.$bvToast.toast("The inputport " + objectPort.name + " that should be entered by the automation does not exists.");
@@ -594,16 +646,89 @@ export default new Vuex.Store({
             vue.$bvToast.toast("The type of pipe " + objectPipeURI + " is not humanpipe, control pipe, direct pipe or port pipe");
             return;
           }
-          // todo: inputs ready, compute and handle output 
+          //#endregion
+          //#region Handle output port and result
+          const outputPort = outputPorts[0];
 
+          // check if there is a portpipe whose source port is this port. In this case write to the input port at the other end of the pipe 
+          // check if there is a control pipe coming out of this output port. Remove the pipes accordingly. 
+          const pipesOriginateFromOutputPort = state.store.getQuads(null, df.namedNode(poc + "sourcePort"), df.namedNode(outputPort.uri));
+          let valueBindingContent;
+          if (datatype.startsWith(xsd)) {
+            const datatypeName = datatype.substring(datatype.lastIndexOf("#") + 1);
+            valueBindingContent = constants.literalValueBinding(object, datatypeName);
+          } else {
+            valueBindingContent = constants.URIValueBinding(object);
+          }
+          pipesOriginateFromOutputPort.forEach(async p => {
+            const isPortPipe = state.store.getQuads(df.namedNode(p.subject.value), df.namedNode(rdf + "type"), df.namedNode(poc + "PortPipe"));
+            const isUnconditionalPipe = state.store.getQuads(df.namedNode(p.subject.value), df.namedNode(rdf + "type"), df.namedNode(poc + "UnconditionalControlPipe"));
+            const isTruePipe = state.store.getQuads(df.namedNode(p.subject.value), df.namedNode(rdf + "type"), df.namedNode(poc + "TruePipe"));
+            const isFalsePipe = state.store.getQuads(df.namedNode(p.subject.value), df.namedNode(rdf + "type"), df.namedNode(poc + "FalsePipe"));
 
+            if (isPortPipe.length > 0) {
+              const targetPort = state.store.getQuads(df.namedNode(p.subject.value), df.namedNode(poc + "targetPort"), null);
+              if (targetPort.length == 0) {
+                vue.$bvToast.toast("Warning the pipe " + p.subject.value + " is a port pipe but does not have targetPort");
+                commit("stopExecution");
+                return;
+              }
+              const targetPortName = targetPort.object.value.substring(targetPort.object.value.lastIndexOf("#") + 1);
+              await fc.postFile(`${state.userRoot}/poc/workflow_instances/${workflowInstanceID}_step_instances/${targetPortName}.ttl`, valueBindingContent);
+            } else if (isUnconditionalPipe.length > 0) {
+              const pipeName = p.subject.value.substring(p.subject.value.lastIndexOf("#") + 1);
+              await fc.deleteFile(`${state.userRoot}/poc/workflow_instances/${workflowInstanceID}_step_instances/${pipeName}.ttl`);
+            } else if (isTruePipe.length > 0) {
+              const pipeName = p.subject.value.substring(p.subject.value.lastIndexOf("#") + 1);
+              const datatype = datatype.substring(datatype.lastIndexOf("#") + 1);
+              let dontDelete = false;
+              if (datatype.startsWith(xsd)) {
+                if (datatype == "string" && object == "") {
+                  dontDelete = true;
+                } else if (datatype == "boolean" && object == "false") {
+                  dontDelete = true;
+                } else if ((datatype == "float" || datatype == "double" || datatype == "decimal") && parseFloat(object)) {
+                  dontDelete = true;
+                } else if ((datatype == "integer" || datatype == "nonPositiveInteger" || datatype == "negativeInteger" || datatype == "unsignedInt" || datatype == "positiveInteger") && parseInt(object)) {
+                  dontDelete = true;
+                }
+              }
+              if (!dontDelete) {
+                await fc.deleteFile(`${state.userRoot}/poc/workflow_instances/${workflowInstanceID}_step_instances/${pipeName}.ttl`);
+              }
+            } else if (isFalsePipe.length > 0) {
+              const pipeName = p.subject.value.substring(p.subject.value.lastIndexOf("#") + 1);
+              const datatype = datatype.substring(datatype.lastIndexOf("#") + 1);
+              let deleteIt = false;
+              if (datatype.startsWith(xsd)) {
+                if (datatype == "string" && object == "") {
+                  deleteIt = true;
+                } else if (datatype == "boolean" && object == "false") {
+                  deleteIt = true;
+                } else if ((datatype == "float" || datatype == "double" || datatype == "decimal") && parseFloat(object)) {
+                  deleteIt = true;
+                } else if ((datatype == "integer" || datatype == "nonPositiveInteger" || datatype == "negativeInteger" || datatype == "unsignedInt" || datatype == "positiveInteger") && parseInt(object)) {
+                  deleteIt = true;
+                }
+              }
+              if (deleteIt) await fc.deleteFile(`${state.userRoot}/poc/workflow_instances/${workflowInstanceID}_step_instances/${pipeName}.ttl`);
+            } else {
+              vue.$bvToast.toast("Warning! The pipe " + p.subject.value + " has an invalid type!");
+              commit("stopExecution");
+              return;
+            }
+          });
+
+          //#endregion
         }
       }
       else if (isDeleteStep.length > 0) {
+        //#region Validation
         // A delete step has 1 inputport(object)
         const checklist = [0];
         if (inputPorts.length != 1) {
           vue.$bvToast.toast("The DeleteStep " + stepToRun + " does not have exactly 1 input port");
+          commit("stopExecution");
           return;
         }
         inputPorts.forEach(i => {
@@ -613,20 +738,29 @@ export default new Vuex.Store({
         });
         if (outputPorts.length != 0) {
           vue.$bvToast.toast("The DeleteStep " + stepToRun + " does not have exactly 0 output port");
+          commit("stopExecution");
           return;
         }
         if (!checklist[0]) {
           vue.$bvToast.toast("The DeleteStep " + stepToRun + " does not have ports labeled correctly");
+          commit("stopExecution");
           return;
         } else { // Check complete start execution
+          //#endregion
+
 
         }
       }
       else if (isDisplayStep.length > 0) {
+        //#region Validation
+
+
+
         // A Display step has 1 inputport(message)
         const checklist = [0];
         if (inputPorts.length != 1) {
           vue.$bvToast.toast("The DisplayStep " + stepToRun + " does not have exactly 1 input port");
+          commit("stopExecution");
           return;
         }
         inputPorts.forEach(i => {
@@ -636,21 +770,30 @@ export default new Vuex.Store({
         });
         if (outputPorts.length != 0) {
           vue.$bvToast.toast("The DisplayStep " + stepToRun + " does not have exactly 0 output port");
+          commit("stopExecution");
           return;
         }
 
         if (!checklist[0]) {
           vue.$bvToast.toast("The DisplayStep " + stepToRun + " does not have ports labeled correctly");
+          commit("stopExecution");
           return;
         } else { // Check complete start execution
+          //#endregion
+
+
+
 
         }
       }
       else if (isEvaluateStep.length > 0) {
+        //#region Validation
+
         // A evaluate step has 1 inputport(object) and an output port(result)
         const checklist = [0, 0];
         if (inputPorts.length != 1) {
           vue.$bvToast.toast("The EvaluateStep " + stepToRun + " does not have exactly 1 input port");
+          commit("stopExecution");
           return;
         }
         inputPorts.forEach(i => {
@@ -660,6 +803,7 @@ export default new Vuex.Store({
         });
         if (outputPorts.length != 1) {
           vue.$bvToast.toast("The EvaluateStep " + stepToRun + " does not have exactly 1 output port");
+          commit("stopExecution");
           return;
         }
         outputPorts.forEach(i => {
@@ -669,16 +813,24 @@ export default new Vuex.Store({
         });
         if (!checklist[0] || !checklist[1]) {
           vue.$bvToast.toast("The EvaluateStep " + stepToRun + " does not have ports labeled correctly");
+          commit("stopExecution");
           return;
         } else { // Check complete start execution
+
+
+          //#endregion
+
+
 
         }
       }
       else if (isFilterStep.length > 0) {
+        //#region Validation
         // A filter step has 2 inputports(condition, object) and an output port(result)
         const checklist = [0, 0, 0];
         if (inputPorts.length != 2) {
           vue.$bvToast.toast("The FilterStep " + stepToRun + " does not have exactly 2 input ports");
+          commit("stopExecution");
           return;
         }
         inputPorts.forEach(i => {
@@ -690,6 +842,7 @@ export default new Vuex.Store({
         });
         if (outputPorts.length != 1) {
           vue.$bvToast.toast("The FilterStep " + stepToRun + " does not have exactly 1 output port");
+          commit("stopExecution");
           return;
         }
         outputPorts.forEach(i => {
@@ -699,16 +852,23 @@ export default new Vuex.Store({
         });
         if (!checklist[0] || !checklist[1] || !checklist[2]) {
           vue.$bvToast.toast("The FilterStep " + stepToRun + " does not have ports labeled correctly");
+          commit("stopExecution");
           return;
         } else { // Check complete start execution
+          //#endregion
+
+
 
         }
       }
       else if (isGetStep.length > 0) {
+        //#region Validation
+
         // A get step has 2 inputports(index, source) and an output port(result)
         const checklist = [0, 0, 0];
         if (inputPorts.length != 2) {
           vue.$bvToast.toast("The GetStep " + stepToRun + " does not have exactly 2 input ports");
+          commit("stopExecution");
           return;
         }
         inputPorts.forEach(i => {
@@ -720,6 +880,7 @@ export default new Vuex.Store({
         });
         if (outputPorts.length != 1) {
           vue.$bvToast.toast("The GetStep " + stepToRun + " does not have exactly 1 output port");
+          commit("stopExecution");
           return;
         }
         outputPorts.forEach(i => {
@@ -729,16 +890,22 @@ export default new Vuex.Store({
         });
         if (!checklist[0] || !checklist[1] || !checklist[2]) {
           vue.$bvToast.toast("The GetStep " + stepToRun + " does not have ports labeled correctly");
+          commit("stopExecution");
           return;
         } else { // Check complete start execution
+
+
+          //#endregion
 
         }
       }
       else if (isInsertStep.length > 0) {
+        //#region Validation
         // A Insert step has 2 inputports(target, object)
         const checklist = [0, 0];
         if (inputPorts.length != 2) {
           vue.$bvToast.toast("The InsertStep " + stepToRun + " does not have exactly 2 input ports");
+          commit("stopExecution");
           return;
         }
         inputPorts.forEach(i => {
@@ -750,21 +917,29 @@ export default new Vuex.Store({
         });
         if (outputPorts.length != 0) {
           vue.$bvToast.toast("The InsertStep " + stepToRun + " does not have exactly 0 output port");
+          commit("stopExecution");
           return;
         }
 
         if (!checklist[0] || !checklist[1]) {
           vue.$bvToast.toast("The InsertStep " + stepToRun + " does not have ports labeled correctly");
+          commit("stopExecution");
           return;
         } else { // Check complete start execution
+
+          //#endregion
+
+
 
         }
       }
       else if (isModifyStep.length > 0) {
+        //#region Validation
         // A modify step has 3 inputports(value, object, dataField or property) and an output port(result)
         const checklist = [0, 0, 0, 0];
         if (inputPorts.length != 3) {
           vue.$bvToast.toast("The ModifyStep " + stepToRun + " does not have exactly 3 input ports");
+          commit("stopExecution");
           return;
         }
         inputPorts.forEach(i => {
@@ -778,6 +953,7 @@ export default new Vuex.Store({
         });
         if (outputPorts.length != 1) {
           vue.$bvToast.toast("The ModifyStep " + stepToRun + " does not have exactly 1 output port");
+          commit("stopExecution");
           return;
         }
         outputPorts.forEach(i => {
@@ -787,16 +963,22 @@ export default new Vuex.Store({
         });
         if (!checklist[0] || !checklist[1] || !checklist[2] || !checklist[3]) {
           vue.$bvToast.toast("The ModifyStep " + stepToRun + " does not have ports labeled correctly");
+          commit("stopExecution");
           return;
         } else { // Check complete start execution
+          //#endregion
+
+
 
         }
       }
       else if (isRemoveStep.length > 0) {
+        //#region Validation
         // A Remove step has 2 inputports(source, index or object)
         const checklist = [0, 0];
         if (inputPorts.length != 2) {
           vue.$bvToast.toast("The RemoveStep " + stepToRun + " does not have exactly 2 input ports");
+          commit("stopExecution");
           return;
         }
         inputPorts.forEach(i => {
@@ -808,21 +990,27 @@ export default new Vuex.Store({
         });
         if (outputPorts.length != 0) {
           vue.$bvToast.toast("The RemoveStep " + stepToRun + " does not have exactly 0 output port");
+          commit("stopExecution");
           return;
         }
 
         if (!checklist[0] || !checklist[1]) {
           vue.$bvToast.toast("The RemoveStep " + stepToRun + " does not have ports labeled correctly");
+          commit("stopExecution");
           return;
         } else { // Check complete start execution
+          //#endregion
+
 
         }
       }
       else if (isSaveStep.length > 0) {
+        //#region Validation
         // A Save step has 2 inputports(name, object)
         const checklist = [0, 0];
         if (inputPorts.length != 2) {
           vue.$bvToast.toast("The SaveStep " + stepToRun + " does not have exactly 2 input ports");
+          commit("stopExecution");
           return;
         }
         inputPorts.forEach(i => {
@@ -834,21 +1022,28 @@ export default new Vuex.Store({
         });
         if (outputPorts.length != 0) {
           vue.$bvToast.toast("The SaveStep " + stepToRun + " does not have exactly 0 output port");
+          commit("stopExecution");
           return;
         }
 
         if (!checklist[0] || !checklist[1]) {
           vue.$bvToast.toast("The SaveStep " + stepToRun + " does not have ports labeled correctly");
+          commit("stopExecution");
           return;
         } else { // Check complete start execution
+          //#endregion
+
+
 
         }
       }
       else if (isSizeStep.length > 0) {
+        //#region Validation
         // A Size step has 1 inputport (object) and an output port(result)
         const checklist = [0, 0];
         if (inputPorts.length != 1) {
           vue.$bvToast.toast("The SizeStep " + stepToRun + " does not have exactly 1 input ports");
+          commit("stopExecution");
           return;
         }
         inputPorts.forEach(i => {
@@ -858,6 +1053,7 @@ export default new Vuex.Store({
         });
         if (outputPorts.length != 1) {
           vue.$bvToast.toast("The SizeStep " + stepToRun + " does not have exactly 1 output port");
+          commit("stopExecution");
           return;
         }
         outputPorts.forEach(i => {
@@ -867,13 +1063,16 @@ export default new Vuex.Store({
         });
         if (!checklist[0] || !checklist[1]) {
           vue.$bvToast.toast("The SizeStep " + stepToRun + " does not have ports labeled correctly");
+          commit("stopExecution");
           return;
         } else { // Check complete start execution
+          //#endregion
 
         }
       }
       else {
         vue.$bvToast.toast("Invalid type for step instance " + stepToRun + " in workflow instance " + workflowInstanceID);
+        commit("stopExecution");
         return;
       }
 
