@@ -100,7 +100,6 @@
 import store from "../store/index";
 const N3 = require("n3");
 const df = N3.DataFactory;
-// todo: List all workflow instances
 // It is not reasonable to show all data instances to the user
 // It is reasonable to show contents of all lists to the user
 // It is not reasonable to show step instances to the user

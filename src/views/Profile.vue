@@ -139,10 +139,9 @@ export default {
               inputPortURI = portURI;
             }
             // So there will be two cases: selecting index for a list, and creating a new object 
-            // Create dynamic modals according to these scenarios. 
-            // todo: right now you use save steps with human pipes, change that to create steps with human pipe and save steps
-            // todo: A CreateStep and GetStep must explain what they what from user by their rdfs:comment annotation.
-            // todo: This value will be shown to the user in this application.  
+            // Create dynamic modals in vue bootstrap according to input needed 
+            // * A CreateStep and GetStep must explain what they want from user by their rdfs:comment annotation.
+            // todo: Show the rdfs:comment of the step that needs the human input  
             const isGetStep = store.state.store.getQuads(df.namedNode(appOntology+stepName), df.namedNode(rdf+"type"), df.namedNode(poc+"GetStep"));
             const isCreateStep = store.state.store.getQuads(df.namedNode(appOntology+stepName), df.namedNode(rdf+"type"), df.namedNode(poc+"CreateStep"));
 
@@ -152,7 +151,7 @@ export default {
                 this.$bvToast.toast("In a GetStep only index can be retrieved from user.");
                 return;
               }
-              // todo: ask for index from user
+              // todo: ask for index from user by showing the list items and according to the item that user selects calculate an index
             }else if(isCreateStep.length > 0){
               const isInputPortsLabelIsObject = store.state.store.getQuads(df.namedNode(inputPortURI), df.namedNode(rdfs+"label"), df.literal("object", df.namedNode(xsd+"string")));
               if(isInputPortsLabelIsObject.length == 0){
